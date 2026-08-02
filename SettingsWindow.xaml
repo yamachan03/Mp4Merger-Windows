@@ -1,0 +1,59 @@
+<Window x:Class="Mp4Merger.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Height="260" Width="360"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{DynamicResource WindowBackgroundBrush}" Foreground="{DynamicResource TextBrush}">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock x:Name="SettingsTitle" Text="設定 / Settings" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource TitleTextBrush}" Grid.Row="0" Margin="0,0,0,15"/>
+
+        <!-- Settings Options -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center">
+            <!-- Language -->
+            <Grid Margin="0,0,0,15">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LanguageLabel" Text="言語:" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" Grid.Column="0" VerticalAlignment="Center"/>
+                <ComboBox x:Name="LanguageCombo" Grid.Column="1" Height="28" Padding="5,2" SelectionChanged="LanguageCombo_SelectionChanged">
+                    <ComboBoxItem Content="日本語" Tag="ja"/>
+                    <ComboBoxItem Content="English" Tag="en"/>
+                </ComboBox>
+            </Grid>
+
+            <!-- Theme -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ThemeLabel" Text="テーマ:" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" Grid.Column="0" VerticalAlignment="Center"/>
+                <ComboBox x:Name="ThemeCombo" Grid.Column="1" Height="28" Padding="5,2">
+                    <ComboBoxItem x:Name="ThemeDarkItem" Content="ダークモード" Tag="dark"/>
+                    <ComboBoxItem x:Name="ThemeLightItem" Content="ライトモード" Tag="light"/>
+                    <ComboBoxItem x:Name="ThemeAutoItem" Content="自動切り替え (時間帯)" Tag="auto"/>
+                </ComboBox>
+            </Grid>
+        </StackPanel>
+
+        <!-- Save Button -->
+        <Button x:Name="SaveBtn" Grid.Row="2" Content="保存" Height="32" Width="100" 
+                Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource AccentForegroundBrush}" 
+                FontWeight="Bold" FontSize="13" BorderThickness="0" 
+                HorizontalAlignment="Right" Click="SaveBtn_Click">
+            <Button.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="4"/>
+                </Style>
+            </Button.Resources>
+        </Button>
+    </Grid>
+</Window>

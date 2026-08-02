@@ -1,0 +1,41 @@
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+*.log
+ReleaseBuild/
+Installer/
+
+# Visual Studio files
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Auto-downloaded dependencies
+ffmpeg.exe
+ffprobe.exe
+realesrgan-ncnn-vulkan.exe
+models/
+*_date.txt
+
+# Runtime-generated files
+config.json
+ffprobe_error.log

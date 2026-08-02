@@ -1,0 +1,263 @@
+<Window x:Class="Mp4Merger.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Mp4Merger"
+        mc:Ignorable="d"
+        Title="MP4 Merger" Height="680" Width="820" MinWidth="780" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBackgroundBrush}" Foreground="{DynamicResource TextBrush}">
+    
+    <Window.Resources>
+        <!-- Custom Button Style -->
+        <Style x:Key="NormalButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource HoverBorderBrush}"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.5"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource NormalButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#0C52AB"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Custom CheckBox Style -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <!-- Custom TextBox Style -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="false" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="border" Property="BorderThickness" Value="1.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Custom ComboBox Style -->
+        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- Header -->
+            <RowDefinition Height="*"/>      <!-- File List Area -->
+            <RowDefinition Height="Auto"/>   <!-- Options Card -->
+            <RowDefinition Height="Auto"/>   <!-- Footer Actions -->
+            <RowDefinition Height="Auto"/>   <!-- Status & Progress -->
+        </Grid.RowDefinitions>
+
+        <!-- 1. Header Area -->
+        <Grid Grid.Row="0" Margin="0,0,0,15">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock x:Name="TitleTxt" Text="MP4 Merger" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TitleTextBrush}"/>
+                <TextBlock x:Name="VersionTxt" Text="バージョン 0.999" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0"/>
+            </StackPanel>
+            <Button x:Name="SettingsBtn" Content="⚙" HorizontalAlignment="Right" VerticalAlignment="Center" 
+                    Width="36" Height="36" FontSize="20" Background="Transparent" Foreground="{DynamicResource TextBrush}" 
+                    BorderThickness="0" Cursor="Hand" Click="SettingsBtn_Click">
+                <Button.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="18"/>
+                    </Style>
+                </Button.Resources>
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </Grid>
+
+        <!-- 2. Drag & Drop File List Area -->
+        <Grid Grid.Row="1" Margin="0,0,0,15">
+            <!-- Dashed Border Box -->
+            <Rectangle Stroke="{DynamicResource BorderBrush}" StrokeDashArray="4,4" StrokeThickness="1.5" RadiusX="8" RadiusY="8"/>
+            
+            <!-- Empty State Prompt -->
+            <StackPanel x:Name="PromptStack" VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False">
+                <TextBlock Text="⇩" FontSize="44" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                <TextBlock x:Name="DropZonePromptTxt" Text="ここにMP4/MOVファイルをドラッグ＆ドロップ" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" HorizontalAlignment="Center"/>
+                <TextBlock x:Name="DropZoneSubTxt" Text="ファイルは名前順にソートされます" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+            </StackPanel>
+
+            <!-- ListView (Visible always, but Background is transparent) -->
+            <ListView x:Name="FileListView" Margin="10" Background="Transparent" BorderThickness="0" 
+                      Foreground="{DynamicResource TextBrush}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      AllowDrop="True" PreviewDragOver="Border_PreviewDragOver" Drop="Border_Drop" KeyDown="FileListView_KeyDown">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Margin" Value="0,2"/>
+                        <Setter Property="Padding" Value="4"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <EventSetter Event="PreviewMouseLeftButtonDown" Handler="ListViewItem_PreviewMouseLeftButtonDown"/>
+                        <EventSetter Event="Drop" Handler="ListViewItem_Drop"/>
+                        <EventSetter Event="MouseMove" Handler="ListViewItem_MouseMove"/>
+                        <Setter Property="AllowDrop" Value="True"/>
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn x:Name="ColName" Header="名前" Width="320" DisplayMemberBinding="{Binding Name}"/>
+                        <GridViewColumn x:Name="ColSize" Header="サイズ" Width="100" DisplayMemberBinding="{Binding Info}"/>
+                        <GridViewColumn x:Name="ColDuration" Header="長さ" Width="100" DisplayMemberBinding="{Binding DurationStr}"/>
+                        <GridViewColumn x:Name="ColTags" Header="タグ" Width="200" DisplayMemberBinding="{Binding TagsStr}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Grid>
+
+        <!-- 3. Options Card Panel -->
+        <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" 
+                BorderThickness="1" CornerRadius="8" Padding="15" Margin="0,0,0,15">
+            <StackPanel>
+                <TextBlock x:Name="OptionsHeader" Text="オプション" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TitleTextBrush}" Margin="0,0,0,10"/>
+                
+                <!-- Resolution Option -->
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ResolutionLabel" Text="解像度:" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="13" Grid.Column="0"/>
+                    <ComboBox x:Name="ResolutionCombo" Grid.Column="1" Height="28" Width="260" HorizontalAlignment="Left" SelectedIndex="0" SelectionChanged="OptionChanged">
+                        <ComboBoxItem x:Name="ResOptFast" Content="オリジナル（高速）"/>
+                        <ComboBoxItem x:Name="ResOpt1080" Content="FHD 1080p (Lanczos)"/>
+                        <ComboBoxItem x:Name="ResOpt4k" Content="4K UHD (Lanczos)"/>
+                        <ComboBoxItem x:Name="ResOptAi1x" Content="AI画質補正（等倍）"/>
+                        <ComboBoxItem x:Name="ResOptAi4x" Content="AI超解像 x4（実写）"/>
+                        <ComboBoxItem x:Name="ResOptAiAnime" Content="AI超解像 x4（アニメ）"/>
+                    </ComboBox>
+                </Grid>
+
+                <!-- Checkbox Option Stack -->
+                <StackPanel Orientation="Vertical">
+                    <CheckBox x:Name="FixJitterCheck" Content="ジッター修正" Checked="OptionChanged" Unchecked="OptionChanged"/>
+                    <CheckBox x:Name="StabilizeCheck" Content="ジンバル揺れ補正（スタビライズ）" Checked="StabilizeCheck_Changed" Unchecked="StabilizeCheck_Changed"/>
+                    <Grid x:Name="StabilizeSmoothingRow" Margin="22,0,0,6" IsEnabled="False">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="StabilizeSmoothingLabel" Text="スムージング量:" VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" Grid.Column="0" Margin="0,0,8,0"/>
+                        <Slider x:Name="StabilizeSmoothingSlider" Grid.Column="1" Minimum="10" Maximum="100" Value="50"
+                                IsSnapToTickEnabled="True" TickFrequency="1" VerticalAlignment="Center"
+                                ValueChanged="StabilizeSmoothingSlider_ValueChanged"/>
+                        <TextBlock x:Name="StabilizeSmoothingValueTxt" Text="50" Grid.Column="2" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextBrush}" FontSize="11" Margin="8,0,0,0" Width="24"/>
+                    </Grid>
+                    <CheckBox x:Name="HevcCheck" Content="HEVC（高圧縮）" Checked="OptionChanged" Unchecked="OptionChanged"/>
+                    <CheckBox x:Name="NormalizeAudioCheck" Content="音量ノーマライズ" Checked="OptionChanged" Unchecked="OptionChanged"/>
+                    <CheckBox x:Name="DeepCheckCheck" Content="詳細検証を実行（ディープチェック）" Checked="OptionChanged" Unchecked="OptionChanged"/>
+                </StackPanel>
+
+                <Separator Margin="0,10" Background="{DynamicResource BorderBrush}"/>
+
+                <CheckBox x:Name="MergeOutputCheck" Content="出力ファイルを一つに結合する" IsChecked="True" FontWeight="SemiBold" Checked="OptionChanged" Unchecked="OptionChanged"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 4. Footer Actions Area -->
+        <Grid Grid.Row="3" Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>         <!-- Output Name input -->
+                <ColumnDefinition Width="Auto"/>      <!-- Checkboxes & Buttons -->
+            </Grid.ColumnDefinitions>
+
+            <!-- Bottom Left: Output Name Input -->
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,20,0">
+                <TextBlock x:Name="OutputNameLabel" Text="出力ファイル名" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" Margin="0,0,0,3"/>
+                <TextBox x:Name="OutputNameBox" Height="32" Padding="8,5" VerticalContentAlignment="Center" HorizontalAlignment="Stretch"/>
+            </StackPanel>
+
+            <!-- Bottom Right: Options & Buttons -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
+                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,20,0">
+                    <CheckBox x:Name="KeepOptionsCheck" Content="設定を保持" FontSize="11" Checked="KeepOptionsCheck_Changed" Unchecked="KeepOptionsCheck_Changed"/>
+                    <CheckBox x:Name="WarnOnSlowCheck" Content="時間がかかる場合は事前に確認する" FontSize="11" Checked="WarnOnSlowCheck_Changed" Unchecked="WarnOnSlowCheck_Changed"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="ClearBtn" Content="すべてクリア" Style="{StaticResource NormalButtonStyle}" Click="ClearBtn_Click" Margin="0,0,10,0"/>
+                    <Button x:Name="SortBtn" Content="名前順でソート" Style="{StaticResource NormalButtonStyle}" Click="SortBtn_Click" Margin="0,0,10,0"/>
+                    <Button x:Name="MergeBtn" Content="ファイルを結合" Style="{StaticResource PrimaryButtonStyle}" Width="130" Height="36" Click="MergeBtn_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- 5. Status & Progress -->
+        <StackPanel Grid.Row="4">
+            <ProgressBar x:Name="ProgressBar" Height="10" Value="0" Background="{DynamicResource CardBackgroundBrush}" Foreground="{DynamicResource AccentBrush}" BorderThickness="0">
+                <ProgressBar.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="5"/>
+                    </Style>
+                </ProgressBar.Resources>
+            </ProgressBar>
+            <TextBlock x:Name="StatusText" Text="準備完了" Margin="0,5,0,0" Foreground="{DynamicResource MutedTextBrush}" FontSize="12"/>
+        </StackPanel>
+    </Grid>
+</Window>
