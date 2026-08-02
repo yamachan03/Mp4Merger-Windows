@@ -15,8 +15,11 @@ namespace Mp4Merger.Core
 
         private static readonly string FfmpegApiUrl = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest";
         private static readonly string RealEsrganApiUrl = "https://api.github.com/repos/xinntao/Real-ESRGAN/releases/latest";
-        // API URL of the release that actually owns the downloaded asset (used for digest verification).
-        private static readonly string RealEsrganPinnedApiUrl = "https://api.github.com/repos/xinntao/Real-ESRGAN/releases/tags/v0.2.5.0";
+
+        // RealEsrganUrl points at an immutable 2022 asset that predates GitHub's per-asset
+        // digests (the API returns null for it), so verification uses this pinned SHA-256
+        // measured from the official release. Update this constant if RealEsrganUrl changes.
+        private static readonly string RealEsrganZipSha256 = "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d";
 
         public static bool IsFfmpegMissing()
         {
@@ -154,14 +157,13 @@ namespace Mp4Merger.Core
             using HttpClient dlClient = CreateClient(TimeSpan.FromMinutes(30));
 
             string latestDate = await GetLatestDateAsync(apiClient, RealEsrganApiUrl);
-            string? expectedHash = await GetAssetSha256Async(apiClient, RealEsrganPinnedApiUrl, Path.GetFileName(new Uri(RealEsrganUrl).LocalPath));
 
             reportProgress(50, "Downloading AI Upscaler...");
             string zipPath = Path.Combine(Path.GetTempPath(), "realesrgan_download.zip");
             await DownloadFileAsync(dlClient, RealEsrganUrl, zipPath, (p) => reportProgress(50 + (p * 0.5), $"Downloading AI Upscaler: {p:F1}%"));
 
             reportProgress(95, "Verifying AI Upscaler...");
-            await VerifySha256Async(zipPath, expectedHash);
+            await VerifySha256Async(zipPath, RealEsrganZipSha256);
 
             reportProgress(100, "Extracting AI Upscaler...");
             ExtractRealEsrgan(zipPath, AppPaths.EnsureDataDir());
