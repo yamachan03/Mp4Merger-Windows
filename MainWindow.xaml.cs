@@ -385,6 +385,11 @@ namespace Mp4Merger
 
         private void StabilizeSmoothingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            // Setting the slider's Minimum in XAML coerces its Value, which raises
+            // this before the label below it has been created. The generated code
+            // attaches the handler as soon as the slider itself exists.
+            if (StabilizeSmoothingValueTxt is null) return;
+
             StabilizeSmoothingValueTxt.Text = ((int)e.NewValue).ToString();
             if (IsLoaded)
             {
