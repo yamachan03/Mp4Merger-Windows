@@ -6,6 +6,14 @@ MP4 Merger is a simple and intuitive native Windows application designed to merg
 
 ---
 
+## 📥 Download
+
+[**Download Mp4Merger-win-x64.zip**](https://github.com/yamachan03/Mp4Merger-Windows/releases/latest) — one self-contained exe, no .NET runtime to install.
+
+The exe is not code-signed, so Windows SmartScreen warns on first launch; choose **More info → Run anyway** if you trust the source. FFmpeg and the AI upscaler are downloaded on first launch, not bundled.
+
+---
+
 ## ✨ Key Features
 
 * **Normalize Audio (Volume Balancing):** When merging multiple clips, it analyzes and adjusts varying audio levels to a consistent, comfortable volume throughout the entire output video.
@@ -66,6 +74,14 @@ The MIT license above applies only to this repository's own code, not to these d
 **「複数の動画を、一定の音量と指定の解像度でひとつに結合。AI高画質化にも対応」**
 
 MP4 Mergerは、Windowsユーザーのために新しく設計された直感的な動画結合ツールです。複雑な編集ソフトを使わずに、バラバラの動画ファイルを、音量バランスの整った高画質な一本の動画へとまとめあげます。
+
+---
+
+## 📥 ダウンロード
+
+[**Mp4Merger-win-x64.zip をダウンロード**](https://github.com/yamachan03/Mp4Merger-Windows/releases/latest) — 自己完結の実行ファイル1つで、.NETランタイムのインストールは不要です。
+
+コード署名をしていないため初回起動時にWindows SmartScreenの警告が出ます。配布元を信頼できる場合は「**詳細情報 → 実行**」を選んでください。FFmpegとAI超解像コンポーネントは同梱しておらず、初回起動時にダウンロードします。
 
 ---
 
