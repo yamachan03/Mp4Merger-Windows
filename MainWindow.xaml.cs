@@ -312,6 +312,8 @@ namespace Mp4Merger
             WarnOnSlowCheck.Content = Localizer.Get("WarnOnSlow", lang);
             ClearBtn.Content = Localizer.Get("ClearAll", lang);
             SortBtn.Content = Localizer.Get("SortByName", lang);
+            CancelBtn.Content = Localizer.Get("CancelProcessing", lang);
+            CheckModeBtn.Content = Localizer.Get("CheckModeTitle", lang);
             
             UpdateMergeButtonText(lang);
 
@@ -365,6 +367,12 @@ namespace Mp4Merger
                     SaveOptionsToConfig();
                 }
             }
+        }
+
+        private void CheckModeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new IntegrityCheckWindow(Config.Language) { Owner = this };
+            window.ShowDialog();
         }
 
         private void OptionChanged(object sender, RoutedEventArgs e)

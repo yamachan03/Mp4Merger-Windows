@@ -74,6 +74,9 @@ namespace Mp4Merger.Core
         public double Duration { get; init; }
         public TimeSpan Elapsed { get; init; }
         public bool IsProblem => Status != CheckStatus.Ok;
+        /// Length and time taken, in the user's language. Filled in by the
+        /// screen's model, which is where the chosen language lives.
+        public string DisplayDetail { get; set; } = "";
     }
 
     public sealed class CheckTarget

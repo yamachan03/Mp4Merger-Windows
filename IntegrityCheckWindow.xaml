@@ -1,0 +1,222 @@
+<Window x:Class="Mp4Merger.IntegrityCheckWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Mp4Merger"
+        Title="動画の破損チェック" Height="700" Width="780" MinWidth="700" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource WindowBackgroundBrush}" Foreground="{DynamicResource TextBrush}">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:StatusBrushConverter x:Key="StatusBrush"/>
+        <local:StatusGlyphConverter x:Key="StatusGlyph"/>
+        <local:HasTextConverter x:Key="HasText"/>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,18,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- Source -->
+            <RowDefinition Height="Auto"/>   <!-- Options -->
+            <RowDefinition Height="Auto"/>   <!-- Progress -->
+            <RowDefinition Height="*"/>      <!-- Results -->
+            <RowDefinition Height="Auto"/>   <!-- Footer -->
+        </Grid.RowDefinitions>
+
+        <!-- 1. Source -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <!-- Empty state: drop zone -->
+            <Grid x:Name="DropZone" Height="110" AllowDrop="True"
+                  PreviewDragOver="DropTarget_PreviewDragOver" Drop="DropTarget_Drop">
+                <Rectangle x:Name="DropZoneBorder" Stroke="{DynamicResource BorderBrush}" StrokeDashArray="4,4"
+                           StrokeThickness="1.5" RadiusX="8" RadiusY="8"/>
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False">
+                    <TextBlock Text="⇩" FontSize="32" Foreground="{DynamicResource MutedTextBrush}"
+                               HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock x:Name="DropPromptTxt" Text="チェックしたいファイルまたはフォルダをドロップ" FontSize="13"
+                               FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="DropSubTxt" Text="ファイル単体でもチェックできます。フォルダの場合はMP4・MOVを探します。"
+                               FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center"
+                               Margin="0,4,0,0" TextWrapping="Wrap" MaxWidth="440" TextAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Loaded state: what was selected -->
+            <Border x:Name="SourceInfoPanel" Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="8"
+                    Padding="12,10" Visibility="Collapsed" AllowDrop="True"
+                    PreviewDragOver="DropTarget_PreviewDragOver" Drop="DropTarget_Drop">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="SourceLabelTxt" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TitleTextBrush}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="SourceSummaryTxt" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+                                   Margin="0,3,0,0"/>
+                    </StackPanel>
+                    <TextBlock x:Name="ScanningTxt" Grid.Column="1" Text="スキャン中..." FontSize="11"
+                               VerticalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}"
+                               Visibility="Collapsed"/>
+                </Grid>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button x:Name="ChooseBtn" Content="ファイル／フォルダを選択..." Style="{StaticResource NormalButtonStyle}"
+                        Click="ChooseBtn_Click" Margin="0,0,10,0"/>
+                <Button x:Name="ClearBtn" Content="すべてクリア" Style="{StaticResource NormalButtonStyle}"
+                        Click="ClearBtn_Click" Visibility="Collapsed"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 2. Options -->
+        <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1" CornerRadius="8" Padding="15" Margin="0,0,0,12">
+            <StackPanel x:Name="OptionsPanel">
+                <TextBlock x:Name="CheckLevelHeader" Text="チェックの深さ" FontSize="14" FontWeight="Bold"
+                           Foreground="{DynamicResource TitleTextBrush}" Margin="0,0,0,8"/>
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="LevelQuick" Content="高速" GroupName="Level" Checked="Level_Checked"/>
+                    <RadioButton x:Name="LevelStandard" Content="標準" GroupName="Level" Checked="Level_Checked"/>
+                    <RadioButton x:Name="LevelFull" Content="完全" GroupName="Level" IsChecked="True" Checked="Level_Checked"/>
+                </StackPanel>
+                <TextBlock x:Name="LevelDetailTxt" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+                           TextWrapping="Wrap" Margin="0,8,0,0"/>
+                <CheckBox x:Name="SubfoldersCheck" Content="サブフォルダを含む" IsChecked="True"
+                          Margin="0,8,0,0" Visibility="Collapsed"
+                          Checked="Subfolders_Changed" Unchecked="Subfolders_Changed"/>
+                <TextBlock x:Name="EstimateTxt" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"
+                           Margin="0,8,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 3. Progress -->
+        <StackPanel x:Name="ProgressPanel" Grid.Row="2" Margin="0,0,0,12" Visibility="Collapsed">
+            <ProgressBar x:Name="CheckProgressBar" Height="10" Minimum="0" Maximum="1" Value="0"
+                         Background="{DynamicResource CardBackgroundBrush}" Foreground="{DynamicResource AccentBrush}"
+                         BorderThickness="0">
+                <ProgressBar.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="5"/>
+                    </Style>
+                </ProgressBar.Resources>
+            </ProgressBar>
+            <Grid Margin="0,5,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="CurrentFilesTxt" Grid.Column="0" FontSize="11"
+                           Foreground="{DynamicResource MutedTextBrush}" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="RemainingTxt" Grid.Column="1" FontSize="11"
+                           Foreground="{DynamicResource MutedTextBrush}" Margin="10,0,0,0"/>
+            </Grid>
+        </StackPanel>
+
+        <!-- 4. Results -->
+        <Grid Grid.Row="3" Margin="0,0,0,12">
+            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="8"/>
+            <TextBlock x:Name="ResultsPlaceholder" Text="チェックの準備ができました" VerticalAlignment="Center"
+                       HorizontalAlignment="Center" Foreground="{DynamicResource MutedTextBrush}" FontSize="12"
+                       Visibility="Collapsed"/>
+            <ListBox x:Name="ResultsList" Margin="8" Background="Transparent" BorderThickness="0"
+                     Foreground="{DynamicResource TextBrush}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     HorizontalContentAlignment="Stretch" MouseDoubleClick="ResultsList_MouseDoubleClick">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Padding" Value="2"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Expander IsEnabled="{Binding Log, Converter={StaticResource HasText}}"
+                                  Foreground="{DynamicResource TextBrush}" Margin="0,1">
+                            <Expander.Header>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" FontSize="15" VerticalAlignment="Center" Margin="0,0,8,0"
+                                               Text="{Binding Status, Converter={StaticResource StatusGlyph}}"
+                                               Foreground="{Binding Status, Converter={StaticResource StatusBrush}}"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource TextBrush}"/>
+                                        <TextBlock FontSize="10" Foreground="{DynamicResource MutedTextBrush}"
+                                                   Text="{Binding DisplayDetail}"/>
+                                    </StackPanel>
+                                    <Grid.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem x:Name="RevealOneItem" Header="エクスプローラーで表示"
+                                                      CommandParameter="{Binding Path}" Click="RevealOne_Click"/>
+                                        </ContextMenu>
+                                    </Grid.ContextMenu>
+                                </Grid>
+                            </Expander.Header>
+                            <Border Background="{DynamicResource InputBackgroundBrush}" CornerRadius="6"
+                                    Margin="24,4,0,6" Padding="8" MaxHeight="160">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <TextBox Text="{Binding Log, Mode=OneWay}" IsReadOnly="True" BorderThickness="0"
+                                             Background="Transparent" FontFamily="Consolas" FontSize="11"
+                                             TextWrapping="Wrap"/>
+                                </ScrollViewer>
+                            </Border>
+                        </Expander>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+        <!-- 5. Footer -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel x:Name="SummaryChips" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="●" Foreground="#3FB950" FontSize="13" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBlock x:Name="OkCountTxt" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"
+                               Foreground="{DynamicResource TextBrush}"/>
+                    <TextBlock Text="●" Foreground="#D29922" FontSize="13" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBlock x:Name="WarnCountTxt" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"
+                               Foreground="{DynamicResource TextBrush}"/>
+                    <TextBlock Text="●" Foreground="#F85149" FontSize="13" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBlock x:Name="BrokenCountTxt" FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0"
+                               Foreground="{DynamicResource TextBrush}"/>
+                </StackPanel>
+                <TextBlock x:Name="ErrorTxt" FontSize="11" Foreground="#F85149" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" Visibility="Collapsed"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="RevealProblemsBtn" Style="{StaticResource NormalButtonStyle}" Height="36"
+                        Click="RevealProblems_Click" Margin="0,0,10,0" Visibility="Collapsed"/>
+                <Button x:Name="CancelCheckBtn" Content="処理を中止" Style="{StaticResource NormalButtonStyle}" Height="36"
+                        Click="CancelCheck_Click" Margin="0,0,10,0" Visibility="Collapsed"/>
+                <Button x:Name="StartCheckBtn" Content="チェック開始" Style="{StaticResource PrimaryButtonStyle}"
+                        Width="130" Height="36" Click="StartCheck_Click" IsEnabled="False"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

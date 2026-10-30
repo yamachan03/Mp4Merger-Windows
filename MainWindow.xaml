@@ -10,47 +10,6 @@
         Background="{DynamicResource WindowBackgroundBrush}" Foreground="{DynamicResource TextBrush}">
     
     <Window.Resources>
-        <!-- Custom Button Style -->
-        <Style x:Key="NormalButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="Padding" Value="12,6"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}" 
-                                CornerRadius="6">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource HoverBorderBrush}"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.5"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource NormalButtonStyle}">
-            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#0C52AB"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
         <!-- Custom CheckBox Style -->
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
@@ -108,7 +67,10 @@
                 <TextBlock x:Name="TitleTxt" Text="MP4 Merger" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TitleTextBrush}"/>
                 <TextBlock x:Name="VersionTxt" Text="バージョン 0.999" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0"/>
             </StackPanel>
-            <Button x:Name="SettingsBtn" Content="⚙" HorizontalAlignment="Right" VerticalAlignment="Center" 
+            <Button x:Name="CheckModeBtn" Content="動画の破損チェック" Style="{StaticResource NormalButtonStyle}"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,44,0"
+                    FontSize="11" Click="CheckModeBtn_Click"/>
+            <Button x:Name="SettingsBtn" Content="⚙" HorizontalAlignment="Right" VerticalAlignment="Center"
                     Width="36" Height="36" FontSize="20" Background="Transparent" Foreground="{DynamicResource TextBrush}" 
                     BorderThickness="0" Cursor="Hand" Click="SettingsBtn_Click">
                 <Button.Resources>
