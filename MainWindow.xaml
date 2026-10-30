@@ -243,6 +243,8 @@
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="ClearBtn" Content="すべてクリア" Style="{StaticResource NormalButtonStyle}" Click="ClearBtn_Click" Margin="0,0,10,0"/>
                     <Button x:Name="SortBtn" Content="名前順でソート" Style="{StaticResource NormalButtonStyle}" Click="SortBtn_Click" Margin="0,0,10,0"/>
+                    <Button x:Name="CancelBtn" Content="処理を中止" Style="{StaticResource NormalButtonStyle}" Height="36"
+                            Click="CancelBtn_Click" Margin="0,0,10,0" Visibility="Collapsed"/>
                     <Button x:Name="MergeBtn" Content="ファイルを結合" Style="{StaticResource PrimaryButtonStyle}" Width="130" Height="36" Click="MergeBtn_Click"/>
                 </StackPanel>
             </StackPanel>

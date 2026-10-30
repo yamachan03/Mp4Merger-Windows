@@ -5,7 +5,7 @@ namespace Mp4Merger.Core
 {
     public static class Localizer
     {
-        private static readonly Dictionary<string, string> JaStrings = new Dictionary<string, string>
+        private static readonly Dictionary<string, string> JaStrings = new()
         {
             { "AppTitle", "MP4 Merger" },
             { "Version", "バージョン 1.0" },
@@ -36,7 +36,8 @@ namespace Mp4Merger.Core
             { "SlowWarnTitle", "警告: 処理に時間がかかる可能性があります" },
             { "SlowWarnMessage", "以下の理由により再エンコードが必要なため、処理完了までに時間がかかる可能性があります。続行しますか？\n\n理由:\n{0}" },
             { "SlowReasonFilter", "・フィルターが有効なため（手ブレ補正、音量等）" },
-            { "SlowReasonFormat", "・入力ファイルの解像度やフレームレートが異なるため" },
+            { "SlowReasonFormat", "理由：入力ファイルの映像形式が異なるため、結合の前に揃える必要があります。" },
+            { "SlowReasonAudio", "理由：ファイルごとに音声の形式が違うため、結合の前に一部のファイルの音声を再エンコードして揃える必要があります。" },
             { "SlowReasonHevc", "・HEVC(H.265)書き出しが指定されているため" },
             { "SlowReasonRescale", "・解像度の変更（1080p/4K）が指定されているため" },
             { "CheckingFfmpeg", "FFmpegをチェック中..." },
@@ -48,10 +49,103 @@ namespace Mp4Merger.Core
             { "ProcessingProgress", "処理中: {0:F1}% (残り時間: {1})" },
             { "DeepChecking", "詳細検証中... ({0}/{1})" },
             { "ErrorOccurred", "エラーが発生しました: {0}" },
-            { "VerifyError", "ファイル「{0}」が破損しているか、読み込めません。" }
+            { "VerifyError", "ファイル「{0}」が破損しているか、読み込めません。" },
+
+            // --- 処理の進行状況 ---
+            { "InspectingFiles", "ファイルの形式を確認しています..." },
+            { "ModeFastMerge", "モード: 超高速結合（再エンコードなし）" },
+            { "ModeFilterReencode", "モード: フィルター適用（再エンコード）" },
+            { "ModeSmartReencode", "モード: 自動再エンコード（形式不一致のため）" },
+            { "ConformingVideo", "映像を揃えています（{0}/{1}）" },
+            { "ConformingAudio", "音声を揃えています（{0}/{1}）" },
+            { "AligningTimestamps", "タイムスタンプを揃えています（{0}/{1}）" },
+            { "VerifyingMergedFile", "結合したファイルを検証しています..." },
+            { "FastMergeFailedRewrap", "高速結合に失敗しました。再パッキングでやり直しています..." },
+            { "FastMergeFailedReencoding", "高速結合に失敗しました。全体を再エンコードしてやり直しています（時間がかかります）..." },
+            { "ProcessingWithReencoding", "再エンコード処理を行っています（時間がかかります）..." },
+            { "ProcessingSegment", "セグメントエンコード中 {0}/{1}" },
+            { "FinalizingMergingSegments", "最終処理中（セグメント結合）..." },
+            { "StabilizePass1", "解析中（クリップ {0}/{1}、1/2回目）..." },
+            { "StabilizePass2", "スタビライズ出力中（クリップ {0}/{1}、2/2回目）..." },
+            { "ProcessingFileOfN", "ファイル処理中 {0}/{1}..." },
+            { "ProcessingFiltersOfN", "フィルター適用中 {0}/{1}..." },
+            { "ProcessingAiOfN", "AI処理中 {0}/{1}..." },
+            { "AiUpscalingPhase", "AI超解像処理中... {0}%" },
+            { "CancelProcessing", "処理を中止" },
+            { "ProcessingCancelled", "処理を中止しました。" },
+
+            // --- 確認ダイアログ ---
+            { "ReencodeNeededTitle", "再エンコードの確認" },
+            { "FullReencodeQuestion", "再エンコードなしの高速結合ができませんでした。全ファイルを再エンコードして結合しますか？ 動画の長さに近い時間がかかることがあります。元のファイルは変更されません。" },
+            { "VideoMismatchQuestion", "このままでは結合できません。形式の違うファイルだけ、映像を再エンコード（元のビットレート相当）して揃えますか？ 時間がかかります。元のファイルは変更されません。" },
+            { "FrameRateMismatchQuestion", "フレームレートの違うファイルの映像を再エンコードして揃えますか？ 時間がかかります。元のファイルは変更されません。" },
+            { "MergeCancelledFormatsDiffer", "映像の形式が揃っていないため、結合を中止しました。" },
+            { "OutputWouldOverwriteInput", "保存先の {0} は結合するファイルの1つです。別の名前を指定してください。" },
+            { "CouldNotRead", "{0} を読み込めませんでした。ファイルが壊れているか、動画ではない可能性があります。" },
+            { "InputsChangedDuringMerge", "{0} の内容が結合中に変化しました。他のアプリでファイルの修正や更新が行われている可能性があります。終わってから結合し直してください。" },
+
+            // --- 失敗の説明 ---
+            { "FileNumber", "{0}本目" },
+            { "DiffLine", "{0}「{1}」: {2}が {3}（他は {4}）" },
+            { "DiffNoAudioTrack", "{0}「{1}」: 音声トラックがありません" },
+            { "FieldAudioCodec", "音声コーデック" },
+            { "FieldAudioProfile", "音声プロファイル" },
+            { "FieldSampleRate", "サンプルレート" },
+            { "FieldAudioChannels", "音声チャンネル" },
+            { "FieldVideoCodec", "映像コーデック" },
+            { "FieldVideoProfile", "映像プロファイル" },
+            { "FieldResolution", "解像度" },
+            { "FieldPixelFormat", "ピクセル形式" },
+            { "FieldFrameRate", "フレームレート" },
+            { "ChannelMono", "モノラル" },
+            { "ChannelStereo", "ステレオ" },
+            { "MergedAudioUndecodable", "結合したファイルの音声を再生（デコード）できませんでした。" },
+            { "AudioFormatDiffers", "ファイルごとに音声の形式が違います:" },
+            { "MergedVideoUndecodable", "結合したファイルの映像を再生（デコード）できませんでした。" },
+            { "VideoFormatDiffers", "ファイルごとに映像の形式が違います:" },
+            { "MergedVideoDurationOff", "結合後の映像トラックが {0}秒 です（元の合計は {1}秒）。一部のクリップが正しい速さで再生されない可能性があります。" },
+            { "MergedAudioDurationOff", "結合後の音声トラックが {0}秒 です（元の合計は {1}秒）。" },
+            { "FrameRateDiffers", "ファイルごとにフレームレートが違います:" },
+            { "MergedFileFailedVerification", "結合したファイルの検証に失敗しました。" },
+            { "FfmpegCouldNotProcess", "FFmpegでファイルを処理できませんでした。" },
+            { "SeeLogForDetails", "詳しくは「ログを表示」で確認できます。" },
+            { "ShowLog", "ログを表示" },
+
+            // --- チェックモード ---
+            { "CheckModeTitle", "動画の破損チェック" },
+            { "MergeModeTab", "結合" },
+            { "CheckModeTab", "チェック" },
+            { "CheckLevel", "チェックの深さ" },
+            { "CheckLevelQuick", "高速" },
+            { "CheckLevelStandard", "標準" },
+            { "CheckLevelFull", "完全" },
+            { "CheckLevelQuickDetail", "コンテナ構造のみ確認。1080pの1時間あたり約11秒。ファイルの切れは分かりますが、映像データ内部の破損は検出できません。" },
+            { "CheckLevelStandardDetail", "全パケットを解析し、キーフレームをデコード。1080pの1時間あたり約1分。ほとんどの破損をここで検出できます。" },
+            { "CheckLevelFullDetail", "全フレームをデコード。1080pの1時間あたり約3分。最も確実な検査です。" },
+            { "DropToCheck", "チェックしたいファイルまたはフォルダをドロップ" },
+            { "DropToCheckSub", "ファイル単体でもチェックできます。フォルダの場合はMP4・MOVを探します。" },
+            { "ChooseFilesOrFolders", "ファイル／フォルダを選択..." },
+            { "IncludeSubfolders", "サブフォルダを含む" },
+            { "FilesAndTotal", "{0} ファイル / 合計 {1}" },
+            { "ItemsSelected", "{0} 件を選択中" },
+            { "NoVideoFilesFound", "MP4・MOVファイルが見つかりません" },
+            { "EstimatedTime", "推定所要時間: 約 {0}" },
+            { "ReadyToCheck", "チェックの準備ができました" },
+            { "StartCheck", "チェック開始" },
+            { "CheckedIn", "所要" },
+            { "RevealInExplorer", "エクスプローラーで表示" },
+            { "RevealProblemFiles", "問題のある {0} 件をエクスプローラーで表示" },
+            { "StatusOk", "正常" },
+            { "StatusSuspect", "警告" },
+            { "StatusDamaged", "破損" },
+            { "Scanning", "スキャン中..." },
+            { "CheckingProgress", "チェック中..." },
+            { "RemainingTime", "残り: {0}" },
+            { "CalculatingRemaining", "残り時間を計算中..." },
+            { "CheckComplete", "チェックが完了しました。" }
         };
 
-        private static readonly Dictionary<string, string> EnStrings = new Dictionary<string, string>
+        private static readonly Dictionary<string, string> EnStrings = new()
         {
             { "AppTitle", "MP4 Merger" },
             { "Version", "Version 1.0" },
@@ -82,7 +176,8 @@ namespace Mp4Merger.Core
             { "SlowWarnTitle", "Warning: Process may be slow" },
             { "SlowWarnMessage", "The process might take some time because re-encoding is required for the following reasons. Do you want to continue?\n\nReasons:\n{0}" },
             { "SlowReasonFilter", "- Filters are enabled (Stabilize, Volume, etc.)" },
-            { "SlowReasonFormat", "- Input files have different resolutions or framerates" },
+            { "SlowReasonFormat", "Reason: The video format differs between files, so they have to be conformed before merging." },
+            { "SlowReasonAudio", "Reason: The audio format differs between files, so the audio of some files has to be re-encoded to match before merging." },
             { "SlowReasonHevc", "- HEVC (H.265) encoding is enabled" },
             { "SlowReasonRescale", "- Output resolution changes (1080p/4K) are specified" },
             { "CheckingFfmpeg", "Checking FFmpeg..." },
@@ -94,17 +189,120 @@ namespace Mp4Merger.Core
             { "ProcessingProgress", "Processing: {0:F1}% (ETA: {1})" },
             { "DeepChecking", "Verifying files... ({0}/{1})" },
             { "ErrorOccurred", "An error occurred: {0}" },
-            { "VerifyError", "File \"{0}\" is corrupted or cannot be read." }
+            { "VerifyError", "File \"{0}\" is corrupted or cannot be read." },
+
+            // --- Progress ---
+            { "InspectingFiles", "Inspecting file formats..." },
+            { "ModeFastMerge", "Mode: Fast Merge (Direct Copy)" },
+            { "ModeFilterReencode", "Mode: Filter / Re-encode" },
+            { "ModeSmartReencode", "Mode: Smart Re-encode (Format Mismatch)" },
+            { "ConformingVideo", "Conforming video ({0}/{1})" },
+            { "ConformingAudio", "Conforming audio ({0}/{1})" },
+            { "AligningTimestamps", "Aligning timestamps ({0}/{1})" },
+            { "VerifyingMergedFile", "Verifying the merged file..." },
+            { "FastMergeFailedRewrap", "Fast merge failed. Attempting a rewrap instead..." },
+            { "FastMergeFailedReencoding", "Fast merge failed. Re-encoding everything (this may take a while)..." },
+            { "ProcessingWithReencoding", "Processing with re-encoding (this may take a while)..." },
+            { "ProcessingSegment", "Processing segment {0}/{1}" },
+            { "FinalizingMergingSegments", "Finalizing (merging segments)..." },
+            { "StabilizePass1", "Analyzing (clip {0}/{1}, pass 1/2)..." },
+            { "StabilizePass2", "Stabilizing (clip {0}/{1}, pass 2/2)..." },
+            { "ProcessingFileOfN", "Processing file {0}/{1}..." },
+            { "ProcessingFiltersOfN", "Applying filters {0}/{1}..." },
+            { "ProcessingAiOfN", "AI processing {0}/{1}..." },
+            { "AiUpscalingPhase", "AI upscaling... {0}%" },
+            { "CancelProcessing", "Cancel" },
+            { "ProcessingCancelled", "Processing was cancelled." },
+
+            // --- Confirmation dialogs ---
+            { "ReencodeNeededTitle", "Re-encode Needed" },
+            { "FullReencodeQuestion", "The fast merge (no re-encoding) did not work. Re-encode all files and merge them instead? This can take about as long as the videos themselves. Your original files are not changed." },
+            { "VideoMismatchQuestion", "These files cannot be joined without re-encoding. Re-encode the video of only the files that differ (at about their original bit rate)? This takes a while. Your original files are not changed." },
+            { "FrameRateMismatchQuestion", "Re-encode the video of the files with a different frame rate so they match? This takes a while. Your original files are not changed." },
+            { "MergeCancelledFormatsDiffer", "Merge cancelled because the video formats differ." },
+            { "OutputWouldOverwriteInput", "The output file {0} is one of the files being merged. Choose another name." },
+            { "CouldNotRead", "Could not read {0}. The file may be damaged or not a video." },
+            { "InputsChangedDuringMerge", "{0} changed while being merged. Another app may be modifying or updating it. Wait until that has finished, then merge again." },
+
+            // --- Explaining a failed merge ---
+            { "FileNumber", "File #{0}" },
+            { "DiffLine", "{0} {1}: {2} is {3} (others: {4})" },
+            { "DiffNoAudioTrack", "{0} {1}: has no audio track" },
+            { "FieldAudioCodec", "audio codec" },
+            { "FieldAudioProfile", "audio profile" },
+            { "FieldSampleRate", "sample rate" },
+            { "FieldAudioChannels", "audio channels" },
+            { "FieldVideoCodec", "video codec" },
+            { "FieldVideoProfile", "video profile" },
+            { "FieldResolution", "resolution" },
+            { "FieldPixelFormat", "pixel format" },
+            { "FieldFrameRate", "frame rate" },
+            { "ChannelMono", "mono" },
+            { "ChannelStereo", "stereo" },
+            { "MergedAudioUndecodable", "The merged file's audio could not be decoded." },
+            { "AudioFormatDiffers", "The audio format differs between files:" },
+            { "MergedVideoUndecodable", "The merged file's video could not be decoded." },
+            { "VideoFormatDiffers", "The video format differs between files:" },
+            { "MergedVideoDurationOff", "The merged video track is {0}s long, but the files add up to {1}s, so some clips may play at the wrong speed." },
+            { "MergedAudioDurationOff", "The merged audio track is {0}s long, but the files add up to {1}s." },
+            { "FrameRateDiffers", "The frame rate differs between files:" },
+            { "MergedFileFailedVerification", "The merged file failed verification." },
+            { "FfmpegCouldNotProcess", "FFmpeg could not process the files." },
+            { "SeeLogForDetails", "See \"Show Log\" for details." },
+            { "ShowLog", "Show Log" },
+
+            // --- Check mode ---
+            { "CheckModeTitle", "Video Integrity Check" },
+            { "MergeModeTab", "Merge" },
+            { "CheckModeTab", "Check" },
+            { "CheckLevel", "Check Level" },
+            { "CheckLevelQuick", "Quick" },
+            { "CheckLevelStandard", "Standard" },
+            { "CheckLevelFull", "Full" },
+            { "CheckLevelQuickDetail", "Container structure only — about 11 seconds per hour of 1080p video. Finds truncated files, but not damage inside the video stream." },
+            { "CheckLevelStandardDetail", "Parses every packet and decodes keyframes — about 1 minute per hour of 1080p video. Catches almost all damage." },
+            { "CheckLevelFullDetail", "Decodes every frame — about 3 minutes per hour of 1080p video. The most thorough check." },
+            { "DropToCheck", "Drop files or a folder to check" },
+            { "DropToCheckSub", "A single file works too. Folders are searched for MP4 and MOV files." },
+            { "ChooseFilesOrFolders", "Choose Files or Folder..." },
+            { "IncludeSubfolders", "Include Subfolders" },
+            { "FilesAndTotal", "{0} files / {1} total" },
+            { "ItemsSelected", "{0} items selected" },
+            { "NoVideoFilesFound", "No MP4 or MOV files found" },
+            { "EstimatedTime", "Estimated time: about {0}" },
+            { "ReadyToCheck", "Ready to check" },
+            { "StartCheck", "Start Check" },
+            { "CheckedIn", "checked in" },
+            { "RevealInExplorer", "Show in Explorer" },
+            { "RevealProblemFiles", "Show {0} problem files in Explorer" },
+            { "StatusOk", "OK" },
+            { "StatusSuspect", "Suspect" },
+            { "StatusDamaged", "Damaged" },
+            { "Scanning", "Scanning..." },
+            { "CheckingProgress", "Checking..." },
+            { "RemainingTime", "Remaining: {0}" },
+            { "CalculatingRemaining", "Calculating remaining time..." },
+            { "CheckComplete", "Check complete." }
         };
 
         public static string Get(string key, string lang)
         {
             var dict = (lang == "en") ? EnStrings : JaStrings;
-            if (dict.TryGetValue(key, out string? value))
-            {
-                return value;
-            }
+            if (dict.TryGetValue(key, out string? value)) return value;
+            if (EnStrings.TryGetValue(key, out string? fallback)) return fallback;
             return key;
+        }
+
+        /// Fills `{0}`, `{1}` … placeholders. Unlike string.Format this leaves a
+        /// stray brace in a translation alone instead of throwing.
+        public static string GetDynamic(string key, string lang, params string[] args)
+        {
+            string text = Get(key, lang);
+            for (int i = 0; i < args.Length; i++)
+            {
+                text = text.Replace("{" + i + "}", args[i]);
+            }
+            return text;
         }
     }
 }

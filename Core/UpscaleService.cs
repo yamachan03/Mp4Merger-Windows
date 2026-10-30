@@ -1,16 +1,19 @@
 using System;
-using System.Diagnostics;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Mp4Merger.Core
 {
+    /// Frame-by-frame upscaling with Real-ESRGAN. This has no counterpart in the
+    /// macOS build, which relies on ffmpeg alone.
     public class UpscaleService
     {
-        private string _ffmpegPath;
-        private string _realesrganPath;
+        private readonly string _ffmpegPath;
+        private readonly string _realesrganPath;
 
         public UpscaleService(string ffmpegPath, string realesrganPath)
         {
@@ -18,185 +21,139 @@ namespace Mp4Merger.Core
             _realesrganPath = realesrganPath;
         }
 
-        public async Task UpscaleVideoAsync(string inputVideo, string outputVideo, string modelName, bool keepOriginalResolution, Action<double, string> reportProgress)
+        public async Task UpscaleVideoAsync(
+            string inputVideo,
+            string outputVideo,
+            string modelName,
+            bool keepOriginalResolution,
+            Action<double, string> reportProgress,
+            CancellationToken token)
         {
-            // 1. Setup Directories
-            string tempDir = Path.Combine(Path.GetTempPath(), "Mp4Merger_Upscale_" + Guid.NewGuid());
-            string framesDir = Path.Combine(tempDir, "frames");
-            string upscaledDir = Path.Combine(tempDir, "upscaled_frames");
-            string audioFile = Path.Combine(tempDir, "audio.m4a");
-
+            var workDirectory = WorkDir.Create();
+            string framesDir = Path.Combine(workDirectory.FullName, "frames");
+            string upscaledDir = Path.Combine(workDirectory.FullName, "upscaled");
+            string audioFile = Path.Combine(workDirectory.FullName, "audio.m4a");
             Directory.CreateDirectory(framesDir);
             Directory.CreateDirectory(upscaledDir);
 
             try
             {
-                // 2. Get Video Info (Duration & FrameRate)
-                // 2. Get Video Info (Duration & FrameRate & Resolution)
-                var (durationSecs, fps, width, height) = await GetVideoInfoAsync(inputVideo);
-                int totalFramesEstimate = (int)(durationSecs * fps);
+                // 1. Source details. ffprobe reports these directly, so there is
+                //    no need to parse them back out of ffmpeg's log.
+                var info = await GetVideoInfoAsync(inputVideo, token).ConfigureAwait(false);
+                string frameRate = info.FrameRate.Length > 0 ? info.FrameRate : "30";
 
-                // 3. Extract Audio
+                // 2. Audio, if the file has any. A video-only input is fine.
                 reportProgress(0, "Extracting audio...");
-                await RunProcessAsync(_ffmpegPath, $"-i \"{inputVideo}\" -vn -acodec copy \"{audioFile}\"");
+                var audioResult = await ProcessRunner.CaptureAsync(_ffmpegPath, new[]
+                {
+                    "-i", inputVideo, "-vn", "-acodec", "copy", "-y", audioFile
+                }, token).ConfigureAwait(false);
+                bool hasAudio = audioResult.ExitCode == 0 && File.Exists(audioFile) && new FileInfo(audioFile).Length > 0;
 
-                // 4. Extract Frames
+                // 3. Frames. %08d keeps the ordering correct past 99,999 frames.
                 reportProgress(5, "Extracting frames...");
-                // %08d.png ensures we can handle many frames. 
-                await RunProcessAsync(_ffmpegPath, $"-i \"{inputVideo}\" \"{Path.Combine(framesDir, "%08d.png")}\"");
-
-                // 5. Upscale Frames
-                // Monitor the upscaledDir directory to report progress
-                int framesToUpscale = Directory.GetFiles(framesDir, "*.png").Length;
-                
-                var progressTask = Task.Run(async () =>
+                await RunOrThrowAsync(_ffmpegPath, new[]
                 {
-                    while (true)
+                    "-i", inputVideo, "-y", Path.Combine(framesDir, "%08d.png")
+                }, token).ConfigureAwait(false);
+
+                int frameCount = Directory.GetFiles(framesDir, "*.png").Length;
+                if (frameCount == 0) throw new InvalidOperationException("No frames could be extracted from the video.");
+
+                // 4. Upscale. Real-ESRGAN gives no progress of its own, so the
+                //    output folder is polled while it runs.
+                using var upscaleDone = new CancellationTokenSource();
+                var watcher = WatchProgressAsync(upscaledDir, frameCount, reportProgress, upscaleDone.Token);
+
+                try
+                {
+                    // realesrgan resolves its default "models" folder relative to the
+                    // working directory, so run it where the exe (and models) live.
+                    await RunOrThrowAsync(_realesrganPath, new[]
                     {
-                        await Task.Delay(1000);
-                        if (!Directory.Exists(upscaledDir)) break;
-                        int finished = Directory.GetFiles(upscaledDir, "*.png").Length;
-                        
-                        double pct = 10 + (double)finished / framesToUpscale * 80; // 10% to 90%
-                        reportProgress(pct, $"Upscaling frames ({finished}/{framesToUpscale})...");
+                        "-i", framesDir, "-o", upscaledDir, "-n", modelName, "-s", "4", "-f", "png"
+                    }, token, Path.GetDirectoryName(_realesrganPath)).ConfigureAwait(false);
+                }
+                finally
+                {
+                    upscaleDone.Cancel();
+                    await watcher.ConfigureAwait(false);
+                }
 
-                        if (finished >= framesToUpscale) break;
-                    }
-                });
-
-                // Run Real-ESRGAN
-                // -i inputs -o outputs -n modelname -s scale
-                // scale is usually 4 by default for these models.
-                string args = $"-i \"{framesDir}\" -o \"{upscaledDir}\" -n {modelName} -s 4 -f png";
-                // realesrgan resolves its default "models" folder relative to the working
-                // directory, so run it from the directory the exe (and models) live in.
-                await RunProcessAsync(_realesrganPath, args, Path.GetDirectoryName(_realesrganPath));
-                
-                // Wait for progress loop (it should finish shortly after process exits)
-                // await progressTask; // actually we can likely just stop it or let it run out. 
-                // The loop breaks when count matches, but process might exit before filesystem updates fully or vice-versa.
-                
-                // 6. Merge Frames & Audio
+                // 5. Rebuild the video from the upscaled frames.
                 reportProgress(90, "Merging frames and audio...");
-                
-                // Construct video from images
-                // -r fps set framerate
-                // Construct video from images
-                // -r fps set framerate
-                string vf = "";
-                if (keepOriginalResolution && width > 0 && height > 0)
+                string tempOut = Path.Combine(workDirectory.FullName, $"upscaled_{Guid.NewGuid():N}.mp4");
+
+                var args = new List<string> { "-framerate", frameRate, "-i", Path.Combine(upscaledDir, "%08d.png") };
+                if (hasAudio) args.AddRange(new[] { "-i", audioFile, "-map", "0:v:0", "-map", "1:a:0" });
+                if (keepOriginalResolution && info.Width > 0 && info.Height > 0)
                 {
-                    vf = $"-vf \"scale={width}:{height}:flags=lanczos\" ";
+                    args.AddRange(new[] { "-vf", $"scale={info.Width}:{info.Height}:flags=lanczos" });
                 }
+                args.AddRange(new[] { "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p" });
+                if (hasAudio) args.AddRange(new[] { "-c:a", "copy" });
+                args.AddRange(new[] { "-r", frameRate, "-y", tempOut });
 
-                string tempOut = Path.Combine(Path.GetTempPath(), "upscaletmp_" + Guid.NewGuid() + ".mp4");
+                await RunOrThrowAsync(_ffmpegPath, args, token).ConfigureAwait(false);
 
-                string mergeArgs = $"-r {fps} -i \"{Path.Combine(upscaledDir, "%08d.png")}\" -i \"{audioFile}\" -map 0:v:0 -map 1:a:0 {vf}-c:v libx264 -pix_fmt yuv420p -c:a copy \"{tempOut}\"";
-                
-                // If audio extraction failed (no audio stream), we might need to handle that. 
-                if (!File.Exists(audioFile))
-                {
-                    mergeArgs = $"-r {fps} -i \"{Path.Combine(upscaledDir, "%08d.png")}\" {vf}-c:v libx264 -pix_fmt yuv420p \"{tempOut}\"";
-                }
-
-                await RunProcessAsync(_ffmpegPath, mergeArgs, null);
-
-                if (File.Exists(tempOut))
-                {
-                    if (File.Exists(outputVideo)) File.Delete(outputVideo);
-                    File.Move(tempOut, outputVideo);
-                }
-
-                reportProgress(100, "Upscaling Complete!");
-
+                if (File.Exists(outputVideo)) File.Delete(outputVideo);
+                File.Move(tempOut, outputVideo);
+                reportProgress(100, "Upscaling complete.");
             }
             finally
             {
-                // Cleanup
-                if (Directory.Exists(tempDir))
+                try { workDirectory.Delete(recursive: true); } catch { }
+            }
+        }
+
+        /// Reports how many frames Real-ESRGAN has written so far.
+        private static async Task WatchProgressAsync(
+            string upscaledDir, int total, Action<double, string> reportProgress, CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
                 {
-                    try { Directory.Delete(tempDir, true); } catch { /* Ignore cleanup errors */ }
+                    await Task.Delay(1000, token).ConfigureAwait(false);
+                    int finished = Directory.Exists(upscaledDir)
+                        ? Directory.GetFiles(upscaledDir, "*.png").Length
+                        : 0;
+                    double percent = 10 + (double)finished / total * 80; // 10% to 90%
+                    reportProgress(percent, $"Upscaling frames ({finished}/{total})...");
+                    if (finished >= total) return;
                 }
             }
+            catch (OperationCanceledException) { /* the upscale finished */ }
         }
 
-        private async Task<(double duration, double fps, int width, int height)> GetVideoInfoAsync(string file)
+        private async Task<(double Duration, string FrameRate, int Width, int Height)> GetVideoInfoAsync(
+            string file, CancellationToken token)
         {
-            // Use ffmpeg/ffprobe to get info. For simplicity, just use FFprobe if available or parse ffmpeg output.
-            // Since we have ffmpeg path, let's use ffmpeg -i and parse stderr.
-            
-            string workDir = Path.GetDirectoryName(file) ?? "";
-            string shortName = Path.GetFileName(file);
+            string ffprobePath = Path.Combine(
+                Path.GetDirectoryName(_ffmpegPath) ?? "", "ffprobe.exe");
+            if (!File.Exists(ffprobePath)) ffprobePath = AppPaths.ResolveTool("ffprobe");
 
-            Process p = new Process();
-            if (!string.IsNullOrEmpty(workDir)) p.StartInfo.WorkingDirectory = workDir;
-            p.StartInfo.FileName = _ffmpegPath;
-            p.StartInfo.Arguments = $"-i \"{shortName}\"";
-            p.StartInfo.UseShellExecute = false;
-            p.StartInfo.RedirectStandardError = true;
-            p.StartInfo.CreateNoWindow = true;
-            p.Start();
-            string output = await p.StandardError.ReadToEndAsync();
-            p.WaitForExit();
+            var result = await ProcessRunner.CaptureAsync(ffprobePath, MediaProbe.FfprobeArguments(file), token)
+                .ConfigureAwait(false);
+            var probe = MediaProbe.Parse(result.StdOut, file);
 
-            // Duration: 00:00:05.12, start: ...
-            // Stream #0:0(...): Video: ..., 30 fps, ...
-            
-            double duration = 0;
-            double fps = 30; // default
-            int width = 0;
-            int height = 0;
-
-            var durMatch = Regex.Match(output, @"Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})");
-            if (durMatch.Success)
-            {
-                var ts = TimeSpan.Parse(durMatch.Groups[0].Value.Replace("Duration: ", ""));
-                duration = ts.TotalSeconds;
-            }
-
-            var fpsMatch = Regex.Match(output, @"(\d+(\.\d+)?) fps");
-            if (fpsMatch.Success)
-            if (fpsMatch.Success)
-            {
-                double.TryParse(fpsMatch.Groups[1].Value, out fps);
-            }
-
-            var resMatch = Regex.Match(output, @"Video: .+, (\d+)x(\d+)");
-            if (resMatch.Success)
-            {
-                int.TryParse(resMatch.Groups[1].Value, out width);
-                int.TryParse(resMatch.Groups[2].Value, out height);
-            }
-
-            return (duration, fps, width, height);
+            return (
+                probe?.Duration ?? 0,
+                probe?.Video?.FrameRate ?? "30",
+                probe?.Video?.Width ?? 0,
+                probe?.Video?.Height ?? 0);
         }
 
-        private async Task RunProcessAsync(string fileName, string args, string? workingDir = null)
+        private static async Task RunOrThrowAsync(
+            string executable, IEnumerable<string> arguments, CancellationToken token, string? workingDirectory = null)
         {
-            Process p = new Process();
-            if (!string.IsNullOrEmpty(workingDir)) p.StartInfo.WorkingDirectory = workingDir;
-            p.StartInfo.FileName = fileName;
-            p.StartInfo.Arguments = args;
-            p.StartInfo.UseShellExecute = false;
-            p.StartInfo.CreateNoWindow = true;
-            
-            // To avoid deadlocks, redirect both if reading, but here we generally just wait.
-            // Realesrgan might output to stderr/stdout.
-            p.StartInfo.RedirectStandardOutput = true; 
-            p.StartInfo.RedirectStandardError = true;
-
-            p.Start();
-            
-            // Consume streams to prevent deadlock
-            var t1 = p.StandardOutput.ReadToEndAsync();
-            var t2 = p.StandardError.ReadToEndAsync();
-
-            await p.WaitForExitAsync();
-            
-            if (p.ExitCode != 0)
+            var result = await ProcessRunner.CaptureAsync(executable, arguments, token,
+                workingDirectory: workingDirectory).ConfigureAwait(false);
+            if (result.ExitCode != 0)
             {
-                // Throw simple error for now
-                throw new Exception($"Process {Path.GetFileName(fileName)} failed with code {p.ExitCode}.");
+                throw new InvalidOperationException(
+                    $"{Path.GetFileName(executable)} failed with code {result.ExitCode}.\n{result.StdErr}");
             }
         }
     }

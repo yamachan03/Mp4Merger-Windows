@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,6 +24,9 @@ namespace Mp4Merger
 
         private DispatcherTimer? _themeTimer;
         private string _currentlyLoadedTheme = "";
+
+        /// Set while a merge is running, so the Cancel button can stop it.
+        private CancellationTokenSource? _processingCts;
 
         // Drag and drop sorting state
         private Point _dragStartPoint;
@@ -629,12 +633,23 @@ namespace Mp4Merger
             }
 
             MergeBtn.IsEnabled = false;
+            CancelBtn.Visibility = Visibility.Visible;
             ProgressBar.Value = 0;
+            _processingCts = new CancellationTokenSource();
+            var token = _processingCts.Token;
 
             try
             {
-                var engine = new VideoEngine();
-                
+                var engine = new VideoEngine
+                {
+                    Language = Config.Language,
+                    // The engine asks before anything that costs a full re-encode.
+                    ConfirmAsync = question => Dispatcher.InvokeAsync(() =>
+                        MessageBox.Show(this, question,
+                            Localizer.Get("ReencodeNeededTitle", Config.Language),
+                            MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes).Task
+                };
+
                 string resolution = "Original";
                 if (ResolutionCombo.SelectedIndex == 1) resolution = "1080p";
                 else if (ResolutionCombo.SelectedIndex == 2) resolution = "4K";
@@ -674,17 +689,16 @@ namespace Mp4Merger
                 // Deep check verification if enabled
                 if (deepCheck)
                 {
-                    string ffmpegPath = ResolveToolPath("ffmpeg");
                     for (int i = 0; i < filePaths.Count; i++)
                     {
                         StatusText.Text = string.Format(Localizer.Get("DeepChecking", Config.Language), i + 1, filePaths.Count);
                         ProgressBar.Value = (double)(i) / filePaths.Count * 20.0; // Show first 20% for deep checking
 
-                        bool isHealthy = await engine.VerifyFileAsync(filePaths[i], ffmpegPath);
-                        if (!isHealthy)
+                        var check = await engine.VerifyFileAsync(filePaths[i], token);
+                        if (check.IsProblem)
                         {
                             string verifyErr = string.Format(Localizer.Get("VerifyError", Config.Language), Path.GetFileName(filePaths[i]));
-                            throw new Exception(verifyErr);
+                            throw new MergeFailedException(verifyErr, check.Log);
                         }
                     }
                 }
@@ -702,27 +716,29 @@ namespace Mp4Merger
                     stabilizeSmoothing,
                     (progress, message) =>
                     {
-                        Dispatcher.Invoke(() =>
+                        // BeginInvoke, so a burst of progress lines never blocks
+                        // the ffmpeg reader thread behind the UI.
+                        Dispatcher.BeginInvoke(() =>
                         {
-                            // Scale progress if deepcheck took some time, otherwise direct
-                            double displayProgress = deepCheck ? 20.0 + (progress * 0.8) : progress;
-                            
-                            // Smooth/Format status message
-                            if (message.Contains("Processing:"))
-                            {
-                                StatusText.Text = string.Format(Localizer.Get("ProcessingProgress", Config.Language), progress, message.Replace("Processing:", "").Trim());
-                            }
-                            else
-                            {
-                                StatusText.Text = message;
-                            }
-                            ProgressBar.Value = displayProgress;
+                            // Scale progress if deep check took some time, otherwise direct
+                            ProgressBar.Value = deepCheck ? 20.0 + (progress * 0.8) : progress;
+                            StatusText.Text = message;
                         });
-                    });
+                    },
+                    token);
 
                 StatusText.Text = Localizer.Get("Ready", Config.Language);
                 ProgressBar.Value = 100;
                 MessageBox.Show(string.Format(Localizer.Get("MergeCompleted", Config.Language), outputFile));
+            }
+            catch (OperationCanceledException)
+            {
+                StatusText.Text = Localizer.Get("ProcessingCancelled", Config.Language);
+            }
+            catch (MergeFailedException ex)
+            {
+                StatusText.Text = Localizer.Get("Ready", Config.Language);
+                ShowFailure(ex.Message, ex.Log);
             }
             catch (Exception ex)
             {
@@ -732,9 +748,40 @@ namespace Mp4Merger
             }
             finally
             {
+                _processingCts?.Dispose();
+                _processingCts = null;
                 MergeBtn.IsEnabled = true;
+                CancelBtn.Visibility = Visibility.Collapsed;
                 ProgressBar.Value = 0;
             }
+        }
+
+        private void CancelBtn_Click(object sender, RoutedEventArgs e)
+        {
+            CancelBtn.IsEnabled = false;
+            _processingCts?.Cancel();
+        }
+
+        /// A failed merge, explained in terms of the user's files, with ffmpeg's
+        /// own output available behind a second prompt.
+        private void ShowFailure(string summary, string log)
+        {
+            if (string.IsNullOrWhiteSpace(log))
+            {
+                MessageBox.Show(this, summary, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            string prompt = summary + "\n\n" + Localizer.Get("ShowLog", Config.Language) + "?";
+            var answer = MessageBox.Show(this, prompt, "Error", MessageBoxButton.YesNo, MessageBoxImage.Error);
+            if (answer != MessageBoxResult.Yes) return;
+
+            // The log can run to thousands of repeated decoder complaints; the
+            // tail is the part that says how it ended.
+            const int limit = 4000;
+            string shown = log.Length > limit ? "..." + log.Substring(log.Length - limit) : log;
+            MessageBox.Show(this, shown, Localizer.Get("ShowLog", Config.Language),
+                MessageBoxButton.OK, MessageBoxImage.None);
         }
 
         private List<string> GetReencodeReasons()
