@@ -1,6 +1,9 @@
+; Read straight off the built exe, so the version lives only in Mp4Merger.csproj.
+#define AppVer GetVersionNumbersString("ReleaseBuild\Mp4Merger.exe")
+
 [Setup]
 AppName=MP4 Merger and Upscaler
-AppVersion=1.0
+AppVersion={#AppVer}
 DefaultDirName={autopf}\Mp4Merger
 DefaultGroupName=Mp4Merger
 UninstallDisplayIcon={app}\Mp4Merger.exe

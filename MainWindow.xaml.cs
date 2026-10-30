@@ -295,7 +295,7 @@ namespace Mp4Merger
         {
             Title = Localizer.Get("AppTitle", lang);
             TitleTxt.Text = Localizer.Get("AppTitle", lang);
-            VersionTxt.Text = Localizer.Get("Version", lang);
+            VersionTxt.Text = Localizer.GetDynamic("Version", lang, AppInfo.DisplayVersion);
             DropZonePromptTxt.Text = Localizer.Get("DropZonePrompt", lang);
             DropZoneSubTxt.Text = Localizer.Get("DropZoneSub", lang);
             OptionsHeader.Text = Localizer.Get("OptionsHeader", lang);

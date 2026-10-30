@@ -11,7 +11,8 @@
       WPFのネイティブDLLを実行ファイルの外に置くことがあり、その場合はウィンドウ生成時に
       `DllNotFoundException` で即落ちします（`Mp4Merger.csproj` の
       `IncludeNativeLibrariesForSelfExtract` がこれを防いでいます）。
-- [ ] バージョン番号を `setup.iss`（AppVersion）と `Core/Localizer.cs`（Version表記）で一致させる
+- [ ] リリース番号は `Mp4Merger.csproj` の `<Version>` だけを変える。
+      画面表示はアセンブリから、`setup.iss` はビルドしたexeから読むので、他に書く場所はありません。
 
 ## GitHub Releases に成果物を上げるときの注意
 

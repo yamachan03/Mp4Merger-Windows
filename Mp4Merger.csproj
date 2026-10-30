@@ -7,6 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>icon.ico</ApplicationIcon>
+    <!-- The one place the release number is written: the window reads it off
+         the assembly and setup.iss reads it off the built exe. -->
+    <Version>1.0.0</Version>
     <!-- A single-file publish otherwise leaves WPF's native libraries out of the
          exe without copying them beside it, and the app dies with a
          DllNotFoundException as soon as a window is subclassed. The installer

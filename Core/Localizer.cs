@@ -8,7 +8,7 @@ namespace Mp4Merger.Core
         private static readonly Dictionary<string, string> JaStrings = new()
         {
             { "AppTitle", "MP4 Merger" },
-            { "Version", "バージョン 1.0" },
+            { "Version", "バージョン {0}" },
             { "DropZonePrompt", "ここにMP4/MOVファイルをドラッグ＆ドロップ" },
             { "DropZoneSub", "ファイルは名前順にソートされます" },
             { "OptionsHeader", "オプション" },
@@ -148,7 +148,7 @@ namespace Mp4Merger.Core
         private static readonly Dictionary<string, string> EnStrings = new()
         {
             { "AppTitle", "MP4 Merger" },
-            { "Version", "Version 1.0" },
+            { "Version", "Version {0}" },
             { "DropZonePrompt", "Drag & Drop MP4/MOV files here" },
             { "DropZoneSub", "Files will be sorted by name" },
             { "OptionsHeader", "Options" },

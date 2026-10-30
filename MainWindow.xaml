@@ -65,7 +65,7 @@
         <Grid Grid.Row="0" Margin="0,0,0,15">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock x:Name="TitleTxt" Text="MP4 Merger" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{DynamicResource TitleTextBrush}"/>
-                <TextBlock x:Name="VersionTxt" Text="バージョン 0.999" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                <TextBlock x:Name="VersionTxt" Text="バージョン 1.0.0" FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0"/>
             </StackPanel>
             <Button x:Name="CheckModeBtn" Content="動画の破損チェック" Style="{StaticResource NormalButtonStyle}"
                     HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,44,0"
