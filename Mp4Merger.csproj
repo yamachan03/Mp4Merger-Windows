@@ -7,6 +7,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>icon.ico</ApplicationIcon>
+    <!-- A single-file publish otherwise leaves WPF's native libraries out of the
+         exe without copying them beside it, and the app dies with a
+         DllNotFoundException as soon as a window is subclassed. The installer
+         ships only the exe, so the exe has to carry them. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
