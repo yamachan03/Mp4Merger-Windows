@@ -879,23 +879,18 @@ namespace Mp4Merger
                 double sizeMb = fileInfo.Length / (1024.0 * 1024.0);
                 item.Info = $"{sizeMb:F1} MB";
 
-                // 2. Probe details via ffprobe
-                var p = new Process();
-                p.StartInfo.FileName = ffprobePath;
-                p.StartInfo.ArgumentList.Add("-v");
-                p.StartInfo.ArgumentList.Add("quiet");
-                p.StartInfo.ArgumentList.Add("-print_format");
-                p.StartInfo.ArgumentList.Add("json");
-                p.StartInfo.ArgumentList.Add("-show_format");
-                p.StartInfo.ArgumentList.Add("-show_streams");
-                p.StartInfo.ArgumentList.Add(path);
-                p.StartInfo.RedirectStandardOutput = true;
-                p.StartInfo.UseShellExecute = false;
-                p.StartInfo.CreateNoWindow = true;
-                p.Start();
+                // 2. Probe details via ffprobe.
+                //    Through ProcessRunner rather than Process.Start, so this one
+                //    is on the list the app kills on quit and cannot outlive it,
+                //    and so a frozen ffprobe gives up instead of leaving the file
+                //    list stuck on "0 MB" for ever.
+                var probe = await ProcessRunner.CaptureAsync(ffprobePath, new[]
+                {
+                    "-v", "quiet", "-print_format", "json",
+                    "-show_format", "-show_streams", path
+                }, CancellationToken.None, timeout: TimeSpan.FromMinutes(2)).ConfigureAwait(true);
 
-                jsonOut = await p.StandardOutput.ReadToEndAsync();
-                p.WaitForExit();
+                jsonOut = probe.StdOut;
 
                 // Clean up the "filename" property to bypass ffprobe's multi-byte backslash escaping bug
                 jsonOut = Regex.Replace(jsonOut, @"""filename""\s*:\s*"".*?""", @"""filename"": """"");

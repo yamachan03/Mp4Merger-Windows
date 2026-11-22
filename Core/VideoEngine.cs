@@ -41,6 +41,16 @@ namespace Mp4Merger.Core
         private string? _detectedH264Encoder;
         private string? _detectedHevcEncoder;
 
+        /// Limits for the short runs: they report no progress, so there is
+        /// nothing to watch and a plain limit is the only thing that can save
+        /// them from hanging the app the way a frozen merge used to.
+        /// Encoder detection runs before the window is usable, so it is the
+        /// tightest; reading a file's details is generous because a file still
+        /// coming down from cloud sync opens slowly.
+        private static readonly TimeSpan EncoderTestLimit = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan ProbeLimit = TimeSpan.FromMinutes(2);
+        private static readonly TimeSpan VerifyLimit = TimeSpan.FromMinutes(5);
+
         /// Language for user-facing messages, as AppConfig stores it.
         public string Language { get; set; } = "ja";
 
@@ -61,7 +71,8 @@ namespace Mp4Merger.Core
             string output = "";
             try
             {
-                var result = await ProcessRunner.CaptureAsync(ffmpegPath, new[] { "-encoders" }, token)
+                var result = await ProcessRunner.CaptureAsync(ffmpegPath, new[] { "-encoders" }, token,
+                        timeout: EncoderTestLimit)
                     .ConfigureAwait(false);
                 output = result.StdOut;
             }
@@ -96,7 +107,7 @@ namespace Mp4Merger.Core
                 {
                     "-hide_banner", "-f", "lavfi", "-i", "nullsrc=s=256x256:r=30",
                     "-frames:v", "3", "-pix_fmt", "yuv420p", "-c:v", encoder, "-f", "null", "-"
-                }, token).ConfigureAwait(false);
+                }, token, timeout: EncoderTestLimit).ConfigureAwait(false);
                 return result.ExitCode == 0;
             }
             catch (OperationCanceledException) { throw; }
@@ -115,8 +126,8 @@ namespace Mp4Merger.Core
             var probes = new List<MediaProbe>();
             foreach (string file in files)
             {
-                var result = await ProcessRunner.CaptureAsync(ffprobePath, MediaProbe.FfprobeArguments(file), token)
-                    .ConfigureAwait(false);
+                var result = await ProcessRunner.CaptureAsync(ffprobePath, MediaProbe.FfprobeArguments(file), token,
+                    timeout: ProbeLimit).ConfigureAwait(false);
                 var probe = result.ExitCode == 0 ? MediaProbe.Parse(result.StdOut, file) : null;
                 if (probe == null)
                 {
@@ -1001,7 +1012,8 @@ namespace Mp4Merger.Core
         {
             string ffmpegPath = ResolveToolPath("ffmpeg");
             var tail = await ProcessRunner.CaptureAsync(ffmpegPath,
-                new[] { "-v", "error", "-sseof", "-1", "-i", path, "-f", "null", "-" }, token).ConfigureAwait(false);
+                new[] { "-v", "error", "-sseof", "-1", "-i", path, "-f", "null", "-" }, token,
+                timeout: VerifyLimit).ConfigureAwait(false);
 
             string findings = VideoIntegrityChecker.MeaningfulDiagnostics(tail.StdErr);
             if (tail.ExitCode != 0 || findings.ToLowerInvariant().Contains("error") || findings.Contains("Invalid"))
@@ -1018,7 +1030,7 @@ namespace Mp4Merger.Core
             {
                 "-v", "error", "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1", path
-            }, token).ConfigureAwait(false);
+            }, token, timeout: ProbeLimit).ConfigureAwait(false);
 
             if (double.TryParse(result.StdOut.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double actual))
             {
@@ -1115,7 +1127,7 @@ namespace Mp4Merger.Core
                     "-v", "error",
                     "-ss", Math.Max(boundary - 1, 0).ToString("F3", CultureInfo.InvariantCulture),
                     "-t", "2", "-i", path, "-f", "null", "-"
-                }, token).ConfigureAwait(false);
+                }, token, timeout: VerifyLimit).ConfigureAwait(false);
 
                 string findings = VideoIntegrityChecker.MeaningfulDiagnostics(window.StdErr);
                 if (window.ExitCode != 0 || findings.Length > 0)
@@ -1134,23 +1146,13 @@ namespace Mp4Merger.Core
         {
             string modelName = resolution == "AI_Anime" ? "realesrgan-x4plus-anime" : "realesrgan-x4plus";
             bool keepResolution = resolution == "AI_1x";
-            var service = new UpscaleService(ResolveToolPath("ffmpeg"), ResolveToolPath("realesrgan-ncnn-vulkan"));
+            var service = new UpscaleService(
+                ResolveToolPath("ffmpeg"), ResolveToolPath("realesrgan-ncnn-vulkan"), StalledMessage);
             await service.UpscaleVideoAsync(input, output, modelName, keepResolution,
                 (pct, _) => reportProgress(pct), token).ConfigureAwait(false);
         }
 
         // MARK: - Running ffmpeg
-
-        /// How long a long-running ffmpeg may report nothing new before it counts
-        /// as hung. It reports its position about twice a second even when it is
-        /// crawling, so this is silence, not slowness. Measured for comparison:
-        /// the longest gap between position reports in a 2GB copy merge, moov
-        /// rewrite included, was 1.27 seconds (2026-11-22).
-        private static readonly TimeSpan FfmpegStallLimit = TimeSpan.FromMinutes(3);
-
-        /// How often the watch is checked. The watch counts these checks rather
-        /// than clock time, so sleeping the machine cannot look like a stall.
-        private static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(10);
 
         private async Task RunFFmpegWithProgressAsync(
             List<string> arguments, double totalDuration, double offsetDuration, DateTime startTime,
@@ -1161,14 +1163,13 @@ namespace Mp4Merger.Core
             // ffmpeg can stop getting anywhere while its process stays open, and
             // nothing here used to notice: the app waited on CancellationToken.None,
             // so whatever the cause the symptom was always "no response, forever"
-            // with nothing in the log. The watch below turns that into an error
-            // that names where it stopped.
-            var watch = new StallWatch((int)(FfmpegStallLimit / PollEvery));
-            using var stalled = CancellationTokenSource.CreateLinkedTokenSource(token);
+            // with nothing in the log. The guard turns that into an error that
+            // names where it stopped.
+            using var guard = new StallGuard(token);
 
             void OnLine(string line)
             {
-                watch.Advance(FfmpegProgress.PositionSeconds(line));
+                guard.Advance(FfmpegProgress.PositionSeconds(line));
 
                 if (FfmpegProgress.Percent(line, totalDuration, offsetDuration) is { } percent)
                 {
@@ -1177,25 +1178,15 @@ namespace Mp4Merger.Core
             }
 
             ProcessResult result;
-            using (new Timer(_ =>
+            try
             {
-                if (!watch.CheckSaysStalled()) return;
-                // Timer.Dispose does not wait for a callback already running, so
-                // this can land after `stalled` is gone, and Cancel then throws.
-                try { stalled.Cancel(); } catch { }
-            }, null, PollEvery, PollEvery))
+                result = await ProcessRunner.CaptureAsync(
+                    ffmpegPath, arguments, guard.Token, onStdErrLine: OnLine).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (guard.Stalled)
             {
-                try
-                {
-                    result = await ProcessRunner.CaptureAsync(
-                        ffmpegPath, arguments, stalled.Token, onStdErrLine: OnLine).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                    when (stalled.IsCancellationRequested && !token.IsCancellationRequested)
-                {
-                    throw new FfmpegStalledException(
-                        StalledMessage(watch), DescribeCommand(ffmpegPath, arguments));
-                }
+                throw new FfmpegStalledException(
+                    StalledMessage(guard.Position), DescribeCommand(ffmpegPath, arguments));
             }
 
             if (result.ExitCode != 0)
@@ -1209,11 +1200,13 @@ namespace Mp4Merger.Core
             }
         }
 
-        private string StalledMessage(StallWatch watch)
+        /// Why the run was cut off, naming where it stopped. Shared by every
+        /// guarded run, so they all explain it the same way.
+        internal string StalledMessage(double? positionSeconds)
         {
-            string minutes = ((int)FfmpegStallLimit.TotalMinutes).ToString(CultureInfo.InvariantCulture);
+            string minutes = ((int)StallGuard.Limit.TotalMinutes).ToString(CultureInfo.InvariantCulture);
 
-            if (watch.Position is not { } position)
+            if (positionSeconds is not { } position)
             {
                 return Localizer.GetDynamic("FfmpegStalledAtStart", Language, minutes);
             }

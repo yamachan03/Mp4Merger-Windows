@@ -64,6 +64,13 @@ namespace Mp4Merger.Core
 
     public enum CheckStatus { Ok, Warning, Broken }
 
+    internal static class CheckLimits
+    {
+        /// Reading a file's details has no progress to watch, so it gets a plain
+        /// limit. Generous, for a file still being pulled down by cloud sync.
+        public static readonly TimeSpan Probe = TimeSpan.FromMinutes(2);
+    }
+
     public sealed class CheckResult
     {
         public Guid Id { get; } = Guid.NewGuid();
@@ -203,7 +210,7 @@ namespace Mp4Merger.Core
                     "-show_entries", "format=duration",
                     "-of", "json",
                     path
-                }, token).ConfigureAwait(false);
+                }, token, timeout: CheckLimits.Probe).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { throw; }
             catch { return (0, 0, 0); }
@@ -261,6 +268,11 @@ namespace Mp4Merger.Core
         {
             var startedAt = DateTime.UtcNow;
 
+            // A deep check of a long file runs for many minutes, and a frozen
+            // ffmpeg would leave that one row spinning for ever. The position it
+            // already reports for the bar doubles as its sign of life.
+            using var guard = new StallGuard(token);
+
             void HandleStdOut(string line)
             {
                 // `out_time_ms` is microseconds despite the name.
@@ -268,17 +280,40 @@ namespace Mp4Merger.Core
                 if (double.TryParse(line.AsSpan("out_time_ms=".Length), NumberStyles.Float,
                                     CultureInfo.InvariantCulture, out double micros))
                 {
-                    onProgress(Math.Max(micros / 1_000_000.0, 0));
+                    double seconds = Math.Max(micros / 1_000_000.0, 0);
+                    guard.Advance(seconds);
+                    onProgress(seconds);
                 }
             }
 
-            var result = await ProcessRunner.CaptureAsync(
-                _ffmpegPath,
-                level.Arguments(target.Path),
-                token,
-                onStdErrLine: null,
-                onStdOutLine: HandleStdOut,
-                stdErrLimit: 64_000).ConfigureAwait(false);
+            ProcessResult result;
+            try
+            {
+                result = await ProcessRunner.CaptureAsync(
+                    _ffmpegPath,
+                    level.Arguments(target.Path),
+                    guard.Token,
+                    onStdErrLine: null,
+                    onStdOutLine: HandleStdOut,
+                    stdErrLimit: 64_000).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (guard.Stalled)
+            {
+                // Not proof the file is damaged, so not Broken: the check simply
+                // could not be finished.
+                string where = guard.Position is { } at
+                    ? TimeSpan.FromSeconds(at).ToString("c") + " into the file"
+                    : "before it read anything";
+                return new CheckResult
+                {
+                    Path = target.Path,
+                    Status = CheckStatus.Warning,
+                    Log = "The check was stopped: ffmpeg made no progress for "
+                          + $"{StallGuard.Limit.TotalMinutes:F0} minutes, {where}.",
+                    Duration = target.Duration,
+                    Elapsed = DateTime.UtcNow - startedAt
+                };
+            }
 
             string findings = MeaningfulDiagnostics(result.StdErr);
             return new CheckResult

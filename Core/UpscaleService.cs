@@ -12,14 +12,32 @@ namespace Mp4Merger.Core
     /// macOS build, which relies on ffmpeg alone.
     public class UpscaleService
     {
+        /// Long enough for a tool with nothing to report: reading a file's
+        /// details, or copying its audio out.
+        private static readonly TimeSpan ShortToolLimit = TimeSpan.FromMinutes(2);
+
         private readonly string _ffmpegPath;
         private readonly string _realesrganPath;
+        private readonly Func<double?, string> _describeStall;
 
-        public UpscaleService(string ffmpegPath, string realesrganPath)
+        /// `describeStall` turns the position a run stopped at into the message
+        /// the user sees, so the wording lives with the rest of the app's
+        /// wording rather than here.
+        public UpscaleService(
+            string ffmpegPath,
+            string realesrganPath,
+            Func<double?, string>? describeStall = null)
         {
             _ffmpegPath = ffmpegPath;
             _realesrganPath = realesrganPath;
+            _describeStall = describeStall ?? DescribeStallInEnglish;
         }
+
+        private static string DescribeStallInEnglish(double? position) =>
+            position is { } seconds
+                ? "FFmpeg stopped responding " + TimeSpan.FromSeconds(seconds).ToString("c")
+                    + " into the video."
+                : "FFmpeg stopped responding after it started.";
 
         public async Task UpscaleVideoAsync(
             string inputVideo,
@@ -48,7 +66,7 @@ namespace Mp4Merger.Core
                 var audioResult = await ProcessRunner.CaptureAsync(_ffmpegPath, new[]
                 {
                     "-i", inputVideo, "-vn", "-acodec", "copy", "-y", audioFile
-                }, token).ConfigureAwait(false);
+                }, token, timeout: ShortToolLimit).ConfigureAwait(false);
                 bool hasAudio = audioResult.ExitCode == 0 && File.Exists(audioFile) && new FileInfo(audioFile).Length > 0;
 
                 // 3. Frames. %08d keeps the ordering correct past 99,999 frames.
@@ -56,7 +74,7 @@ namespace Mp4Merger.Core
                 //    upscale itself, so the bar has to move while it runs:
                 //    ffmpeg's own status line already carries the position.
                 reportProgress(5, "Extracting frames...");
-                await RunOrThrowAsync(_ffmpegPath, new[]
+                await RunGuardedAsync(_ffmpegPath, new[]
                 {
                     "-i", inputVideo, "-y", Path.Combine(framesDir, "%08d.png")
                 }, token, onStdErrLine: line =>
@@ -71,9 +89,13 @@ namespace Mp4Merger.Core
                 if (frameCount == 0) throw new InvalidOperationException("No frames could be extracted from the video.");
 
                 // 4. Upscale. Real-ESRGAN gives no progress of its own, so the
-                //    output folder is polled while it runs.
+                //    output folder is polled while it runs. That count is also
+                //    the only sign of life it has, so it doubles as what the
+                //    guard watches: frames written stand in for a position.
                 using var upscaleDone = new CancellationTokenSource();
-                var watcher = WatchProgressAsync(upscaledDir, frameCount, reportProgress, upscaleDone.Token);
+                using var guard = new StallGuard(token);
+                var watcher = WatchProgressAsync(
+                    upscaledDir, frameCount, reportProgress, guard, upscaleDone.Token);
 
                 try
                 {
@@ -82,7 +104,13 @@ namespace Mp4Merger.Core
                     await RunOrThrowAsync(_realesrganPath, new[]
                     {
                         "-i", framesDir, "-o", upscaledDir, "-n", modelName, "-s", "4", "-f", "png"
-                    }, token, Path.GetDirectoryName(_realesrganPath)).ConfigureAwait(false);
+                    }, guard.Token, Path.GetDirectoryName(_realesrganPath)).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (guard.Stalled)
+                {
+                    throw new InvalidOperationException(
+                        "The AI upscaler stopped responding: no new frame was written for "
+                        + $"{StallGuard.Limit.TotalMinutes:F0} minutes.");
                 }
                 finally
                 {
@@ -104,7 +132,7 @@ namespace Mp4Merger.Core
                 if (hasAudio) args.AddRange(new[] { "-c:a", "copy" });
                 args.AddRange(new[] { "-r", frameRate, "-y", tempOut });
 
-                await RunOrThrowAsync(_ffmpegPath, args, token, onStdErrLine: line =>
+                await RunGuardedAsync(_ffmpegPath, args, token, onStdErrLine: line =>
                 {
                     if (FfmpegProgress.Percent(line, info.Duration, 0) is { } percent)
                     {
@@ -122,9 +150,11 @@ namespace Mp4Merger.Core
             }
         }
 
-        /// Reports how many frames Real-ESRGAN has written so far.
+        /// Reports how many frames Real-ESRGAN has written so far, and tells the
+        /// guard about it: a frame appearing is the only sign of life it gives.
         private static async Task WatchProgressAsync(
-            string upscaledDir, int total, Action<double, string> reportProgress, CancellationToken token)
+            string upscaledDir, int total, Action<double, string> reportProgress,
+            StallGuard guard, CancellationToken token)
         {
             try
             {
@@ -134,6 +164,7 @@ namespace Mp4Merger.Core
                     int finished = Directory.Exists(upscaledDir)
                         ? Directory.GetFiles(upscaledDir, "*.png").Length
                         : 0;
+                    guard.Advance(finished);
                     double percent = 10 + (double)finished / total * 80; // 10% to 90%
                     reportProgress(percent, $"Upscaling frames ({finished}/{total})...");
                     if (finished >= total) return;
@@ -149,8 +180,8 @@ namespace Mp4Merger.Core
                 Path.GetDirectoryName(_ffmpegPath) ?? "", "ffprobe.exe");
             if (!File.Exists(ffprobePath)) ffprobePath = AppPaths.ResolveTool("ffprobe");
 
-            var result = await ProcessRunner.CaptureAsync(ffprobePath, MediaProbe.FfprobeArguments(file), token)
-                .ConfigureAwait(false);
+            var result = await ProcessRunner.CaptureAsync(ffprobePath, MediaProbe.FfprobeArguments(file), token,
+                timeout: ShortToolLimit).ConfigureAwait(false);
             var probe = MediaProbe.Parse(result.StdOut, file);
 
             return (
@@ -160,6 +191,41 @@ namespace Mp4Merger.Core
                 probe?.Video?.Height ?? 0);
         }
 
+        /// Runs a long ffmpeg, cutting it off if it stops getting anywhere.
+        /// Both of the ffmpeg runs here take as long as the upscale itself on a
+        /// long video, so neither can be left unwatched.
+        private async Task RunGuardedAsync(
+            string executable, IEnumerable<string> arguments, CancellationToken token,
+            Action<string>? onStdErrLine = null, string? workingDirectory = null)
+        {
+            using var guard = new StallGuard(token);
+
+            ProcessResult result;
+            try
+            {
+                result = await ProcessRunner.CaptureAsync(executable, arguments, guard.Token,
+                    onStdErrLine: line =>
+                    {
+                        guard.Advance(FfmpegProgress.PositionSeconds(line));
+                        onStdErrLine?.Invoke(line);
+                    },
+                    workingDirectory: workingDirectory).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (guard.Stalled)
+            {
+                throw new InvalidOperationException(_describeStall(guard.Position));
+            }
+
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"{Path.GetFileName(executable)} failed with code {result.ExitCode}.\n{result.StdErr}");
+            }
+        }
+
+        /// Runs a tool that reports nothing of its own. Its one caller passes a
+        /// guarded token, so the run is still cut off if it stops producing
+        /// frames; there is just nothing here to read for that.
         private static async Task RunOrThrowAsync(
             string executable, IEnumerable<string> arguments, CancellationToken token,
             string? workingDirectory = null, Action<string>? onStdErrLine = null)
