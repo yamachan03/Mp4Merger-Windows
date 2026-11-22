@@ -159,6 +159,8 @@ namespace Mp4Merger.Core
             {
                 File.WriteAllText(Path.Combine(AppPaths.EnsureDataDir(), "ffmpeg_date.txt"), latestDate);
             }
+
+            await RecordFfmpegVersionAsync().ConfigureAwait(false);
         }
 
         public static async Task DownloadAiAsync(Action<double, string> reportProgress)
@@ -319,6 +321,32 @@ namespace Mp4Merger.Core
 
             // Best effort: one still running cannot go until a later update.
             foreach (var moved in movedAside) TryDelete(moved.Aside);
+        }
+
+        /// Writes down which build was just installed. The release tag's contents
+        /// are replaced in place, so this file is the only record of what the
+        /// user is actually running once the tag has moved on. Best effort: a
+        /// failure here must not fail an install that otherwise worked.
+        private static async Task RecordFfmpegVersionAsync()
+        {
+            try
+            {
+                string ffmpeg = AppPaths.ResolveTool("ffmpeg");
+                if (!File.Exists(ffmpeg)) return;
+
+                var result = await ProcessRunner.CaptureAsync(
+                    ffmpeg, new[] { "-version" }, CancellationToken.None,
+                    timeout: TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+
+                string? banner = FfmpegVersion.FromBanner(result.StdOut)
+                                 ?? FfmpegVersion.FromBanner(result.StdErr);
+                if (banner != null)
+                {
+                    File.WriteAllText(
+                        Path.Combine(AppPaths.EnsureDataDir(), "ffmpeg_version.txt"), banner);
+                }
+            }
+            catch { /* the install stands with or without this note */ }
         }
 
         private static void TryDelete(string path)

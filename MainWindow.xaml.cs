@@ -789,10 +789,25 @@ namespace Mp4Merger
             var answer = MessageBox.Show(this, prompt, "Error", MessageBoxButton.YesNo, MessageBoxImage.Error);
             if (answer != MessageBoxResult.Yes) return;
 
-            // The log can run to thousands of repeated decoder complaints; the
-            // tail is the part that says how it ended.
+            // The log can run to thousands of repeated decoder complaints, so it
+            // gets trimmed -- but from the middle, not the front. The head names
+            // the ffmpeg build and the inputs, which is what makes the log worth
+            // reading at all; showing only the tail threw that away.
             const int limit = 4000;
-            string shown = log.Length > limit ? "..." + log.Substring(log.Length - limit) : log;
+            const int headRoom = 800;
+            string shown;
+            if (log.Length <= limit)
+            {
+                shown = log;
+            }
+            else
+            {
+                int headEnd = log.IndexOf("\n\n", StringComparison.Ordinal);
+                string head = headEnd > 0 && headEnd <= headRoom
+                    ? log.Substring(0, headEnd) + "\n\n"
+                    : "";
+                shown = head + "..." + log.Substring(log.Length - (limit - head.Length));
+            }
             MessageBox.Show(this, shown, Localizer.Get("ShowLog", Config.Language),
                 MessageBoxButton.OK, MessageBoxImage.None);
         }

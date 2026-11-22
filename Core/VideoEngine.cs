@@ -41,6 +41,12 @@ namespace Mp4Merger.Core
         private string? _detectedH264Encoder;
         private string? _detectedHevcEncoder;
 
+        /// Which build of ffmpeg this run used. Read for free from the banner of
+        /// the encoder-detection run, and put in every failure log: the download
+        /// comes from a tag whose contents are replaced in place, so afterwards
+        /// there is no way to tell which binary misbehaved (see CLAUDE.md).
+        private string? _ffmpegBuild;
+
         /// Limits for the short runs: they report no progress, so there is
         /// nothing to watch and a plain limit is the only thing that can save
         /// them from hanging the app the way a frozen merge used to.
@@ -75,6 +81,9 @@ namespace Mp4Merger.Core
                         timeout: EncoderTestLimit)
                     .ConfigureAwait(false);
                 output = result.StdOut;
+                // The banner goes to stderr, and this run does not pass
+                // -hide_banner, so the build name is already here for the taking.
+                _ffmpegBuild = FfmpegVersion.BuildOf(result.StdErr);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -263,6 +272,15 @@ namespace Mp4Merger.Core
             {
                 throw new MergeFailedException(ex.Message, "");
             }
+            catch (MergeFailedException failure) when (!failure.Log.StartsWith(BuildTag, StringComparison.Ordinal))
+            {
+                // Some failures are raised straight from a helper (an input that
+                // cannot be read, say) and never pass through DetailedLog. Every
+                // log has to name the build, because the release tag it came from
+                // gets replaced in place and afterwards nothing else can tell us.
+                throw new MergeFailedException(
+                    failure.Message, WithBuild(failure.Log), failure.Diagnostics);
+            }
             catch (ToolTimedOutException timeout)
             {
                 // Otherwise this reaches the window as raw English from
@@ -287,8 +305,17 @@ namespace Mp4Merger.Core
             return Localizer.GetDynamic("InputsChangedDuringMerge", Language, string.Join(", ", changed)) + "\n\n";
         }
 
-        private static string DetailedLog(string log, MergeCompatibility.Report? report) =>
-            report == null ? log : MergeDiagnosis.Summary(report.Probes) + "\n\n" + log;
+        private const string BuildTag = "ffmpeg: ";
+
+        /// Puts the build at the top of a log that does not already name it.
+        private string WithBuild(string log) =>
+            BuildTag + (_ffmpegBuild ?? "(version unknown)") + "\n\n" + log;
+
+        private string DetailedLog(string log, MergeCompatibility.Report? report)
+        {
+            if (report == null) return WithBuild(log);
+            return WithBuild(MergeDiagnosis.Summary(report.Probes) + "\n\n" + log);
+        }
 
         /// The output must not be one of the files being read.
         private void EnsureNotAnInput(string output, IReadOnlyList<string> inputs)
@@ -1253,8 +1280,9 @@ namespace Mp4Merger.Core
         /// The tool and its arguments, for the log. Which build of ffmpeg ran
         /// matters too: it comes from BtbN's "latest" tag, so the exact binary
         /// that hung is not available afterwards.
-        private static string DescribeCommand(string ffmpegPath, IEnumerable<string> arguments) =>
-            "$ " + ffmpegPath + " " + string.Join(" ",
+        private string DescribeCommand(string ffmpegPath, IEnumerable<string> arguments) =>
+            BuildTag + (_ffmpegBuild ?? "(version unknown)") + "\n"
+            + "command: " + ffmpegPath + " " + string.Join(" ",
                 arguments.Select(a => a.Contains(' ') ? "\"" + a + "\"" : a));
 
         private static void TryDelete(string path)
