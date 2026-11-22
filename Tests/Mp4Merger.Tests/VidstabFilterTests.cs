@@ -46,6 +46,8 @@ public class VidstabFilterTests
     [InlineData("it's.trf")]
     [InlineData("a[1].trf")]
     [InlineData("say\"what\".trf")]
+    [InlineData("a;b.trf")]
+    [InlineData("a=b.trf")]
     public void RefusesTheOtherCharactersAFilterStringSplitsOn(string name)
     {
         // A user's temp folder can hold a comma or an apostrophe, and those break

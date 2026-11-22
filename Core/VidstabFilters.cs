@@ -46,7 +46,7 @@ namespace Mp4Merger.Core
                 throw new ArgumentException("The transform file needs a name.", nameof(name));
             }
 
-            foreach (char c in new[] { ':', '\\', '/', ',', '\'', '[', ']', '\"' })
+            foreach (char c in new[] { ':', '\\', '/', ',', ';', '=', '\'', '[', ']', '\"' })
             {
                 if (name.IndexOf(c) >= 0)
                 {

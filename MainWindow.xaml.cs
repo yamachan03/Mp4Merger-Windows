@@ -802,10 +802,21 @@ namespace Mp4Merger
             }
             else
             {
-                int headEnd = log.IndexOf("\n\n", StringComparison.Ordinal);
-                string head = headEnd > 0 && headEnd <= headRoom
-                    ? log.Substring(0, headEnd) + "\n\n"
-                    : "";
+                // The first line names the ffmpeg build and is always kept: it is
+                // the one thing that cannot be recovered afterwards, because the
+                // release tag it came from is replaced in place. The per-input
+                // summary after it is kept only if it fits -- with ten inputs it
+                // runs past headRoom, and losing the build line to make room for
+                // it would be the wrong trade.
+                int firstBreak = log.IndexOf('\n');
+                string head = firstBreak > 0 ? log.Substring(0, firstBreak + 1) : "";
+
+                int blockEnd = log.IndexOf("\n\n", StringComparison.Ordinal);
+                if (blockEnd > 0 && blockEnd <= headRoom)
+                {
+                    head = log.Substring(0, blockEnd) + "\n\n";
+                }
+
                 shown = head + "..." + log.Substring(log.Length - (limit - head.Length));
             }
             MessageBox.Show(this, shown, Localizer.Get("ShowLog", Config.Language),
