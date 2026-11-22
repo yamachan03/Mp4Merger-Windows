@@ -466,9 +466,9 @@ namespace Mp4Merger
 
                     foreach (string file in files)
                     {
-                        string ext = Path.GetExtension(file).ToLower();
-                        // Support mp4/mov and exclude .lrf files
-                        if ((ext == ".mp4" || ext == ".mov") && !file.EndsWith(".lrf", StringComparison.OrdinalIgnoreCase))
+                        // What counts as footage lives in one place, because the
+                        // open dialog in the check window has to agree with it.
+                        if (VideoFormats.IsSupported(file))
                         {
                             var placeholderItem = new VideoItem
                             {

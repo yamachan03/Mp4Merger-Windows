@@ -9,7 +9,9 @@ namespace Mp4Merger.Core
         {
             { "AppTitle", "MP4 Merger" },
             { "Version", "バージョン {0}" },
-            { "DropZonePrompt", "ここにMP4/MOVファイルをドラッグ＆ドロップ" },
+            { "DropZonePrompt", "ここに動画ファイルをドラッグ＆ドロップ" },
+            { "VideoFilesLabel", "動画ファイル" },
+            { "AllFilesLabel", "すべてのファイル" },
             { "DropZoneSub", "ファイルは名前順にソートされます" },
             { "OptionsHeader", "オプション" },
             { "Resolution", "解像度:" },
@@ -155,7 +157,9 @@ namespace Mp4Merger.Core
         {
             { "AppTitle", "MP4 Merger" },
             { "Version", "Version {0}" },
-            { "DropZonePrompt", "Drag & Drop MP4/MOV files here" },
+            { "DropZonePrompt", "Drag & Drop video files here" },
+            { "VideoFilesLabel", "Video files" },
+            { "AllFilesLabel", "All files" },
             { "DropZoneSub", "Files will be sorted by name" },
             { "OptionsHeader", "Options" },
             { "Resolution", "Resolution:" },

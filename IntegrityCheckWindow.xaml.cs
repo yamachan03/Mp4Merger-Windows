@@ -149,7 +149,8 @@ namespace Mp4Merger
                 Title = Localizer.Get("ChooseFilesOrFolders", _lang),
                 Multiselect = true,
                 CheckFileExists = false,
-                Filter = "Video files (*.mp4;*.mov;*.m4v)|*.mp4;*.mov;*.m4v|All files (*.*)|*.*"
+                Filter = VideoFormats.DialogFilter(
+                    Localizer.Get("VideoFilesLabel", _lang), Localizer.Get("AllFilesLabel", _lang))
             };
 
             if (dialog.ShowDialog(this) == true && dialog.FileNames.Length > 0)
