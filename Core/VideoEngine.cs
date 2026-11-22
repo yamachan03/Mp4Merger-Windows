@@ -10,11 +10,30 @@ using System.Threading.Tasks;
 namespace Mp4Merger.Core
 {
     /// A merge that failed, described in terms of the user's files. `Log` holds
-    /// ffmpeg's own output for the "show log" affordance.
-    public sealed class MergeFailedException : Exception
+    /// what the "show log" affordance shows; `Diagnostics` holds just ffmpeg's
+    /// own output, because that is what gets matched against for a cause and
+    /// anything else in there (a file name carrying "[aac]", say) would be read
+    /// as a decoder complaining.
+    public class MergeFailedException : Exception
     {
         public string Log { get; }
-        public MergeFailedException(string summary, string log) : base(summary) { Log = log; }
+        public string Diagnostics { get; }
+
+        public MergeFailedException(string summary, string log, string? diagnostics = null) : base(summary)
+        {
+            Log = log;
+            Diagnostics = diagnostics ?? log;
+        }
+    }
+
+    /// ffmpeg stopped getting anywhere and was cut off. Deliberately not just a
+    /// MergeFailedException: a copy merge that fails because the formats disagree
+    /// is worth retrying another way, but one that hung is not. Trying the next
+    /// tier would wait out the stall limit all over again, once per input, and
+    /// the message naming where it stopped would be thrown away on the way.
+    public sealed class FfmpegStalledException : MergeFailedException
+    {
+        public FfmpegStalledException(string summary, string log) : base(summary, log, "") { }
     }
 
     public class VideoEngine
@@ -602,7 +621,7 @@ namespace Mp4Merger.Core
             {
                 VerificationFailure failure => failure,
                 MergeFailedException merge => new VerificationFailure(
-                    MergeDiagnosis.Classify(merge.Log, new MergeDiagnosis.Failure.Processing()), merge.Log),
+                    MergeDiagnosis.Classify(merge.Diagnostics, new MergeDiagnosis.Failure.Processing()), merge.Log),
                 _ => new VerificationFailure(new MergeDiagnosis.Failure.Processing(), error.ToString())
             };
 
@@ -630,6 +649,9 @@ namespace Mp4Merger.Core
                 return;
             }
             catch (OperationCanceledException) { throw; }
+            // A hang is not worth retrying another way: the next tier
+            // would wait out the stall limit again, once per input.
+            catch (FfmpegStalledException) { throw; }
             catch (Exception error)
             {
                 Debug.WriteLine("Tier 1 failed: " + error.Message);
@@ -687,6 +709,9 @@ namespace Mp4Merger.Core
                 Debug.WriteLine("Tier 2 succeeded.");
             }
             catch (OperationCanceledException) { throw; }
+            // A hang is not worth retrying another way: the next tier
+            // would wait out the stall limit again, once per input.
+            catch (FfmpegStalledException) { throw; }
             catch (Exception error)
             {
                 Debug.WriteLine("Tier 2 failed: " + error.Message);
@@ -1118,8 +1143,14 @@ namespace Mp4Merger.Core
 
         /// How long a long-running ffmpeg may report nothing new before it counts
         /// as hung. It reports its position about twice a second even when it is
-        /// crawling, so this is silence, not slowness.
+        /// crawling, so this is silence, not slowness. Measured for comparison:
+        /// the longest gap between position reports in a 2GB copy merge, moov
+        /// rewrite included, was 1.27 seconds (2026-11-22).
         private static readonly TimeSpan FfmpegStallLimit = TimeSpan.FromMinutes(3);
+
+        /// How often the watch is checked. The watch counts these checks rather
+        /// than clock time, so sleeping the machine cannot look like a stall.
+        private static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(10);
 
         private async Task RunFFmpegWithProgressAsync(
             List<string> arguments, double totalDuration, double offsetDuration, DateTime startTime,
@@ -1132,13 +1163,12 @@ namespace Mp4Merger.Core
             // so whatever the cause the symptom was always "no response, forever"
             // with nothing in the log. The watch below turns that into an error
             // that names where it stopped.
-            var watch = new StallWatch(FfmpegStallLimit, DateTime.UtcNow);
+            var watch = new StallWatch((int)(FfmpegStallLimit / PollEvery));
             using var stalled = CancellationTokenSource.CreateLinkedTokenSource(token);
-            bool killedForStalling = false;
 
             void OnLine(string line)
             {
-                watch.Advance(FfmpegProgress.PositionSeconds(line), DateTime.UtcNow);
+                watch.Advance(FfmpegProgress.PositionSeconds(line));
 
                 if (FfmpegProgress.Percent(line, totalDuration, offsetDuration) is { } percent)
                 {
@@ -1147,21 +1177,24 @@ namespace Mp4Merger.Core
             }
 
             ProcessResult result;
-            using (var poll = new Timer(_ =>
+            using (new Timer(_ =>
             {
-                if (killedForStalling || !watch.HasStalled(DateTime.UtcNow)) return;
-                killedForStalling = true;
+                if (!watch.CheckSaysStalled()) return;
+                // Timer.Dispose does not wait for a callback already running, so
+                // this can land after `stalled` is gone, and Cancel then throws.
                 try { stalled.Cancel(); } catch { }
-            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10)))
+            }, null, PollEvery, PollEvery))
             {
                 try
                 {
                     result = await ProcessRunner.CaptureAsync(
                         ffmpegPath, arguments, stalled.Token, onStdErrLine: OnLine).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (killedForStalling && !token.IsCancellationRequested)
+                catch (OperationCanceledException)
+                    when (stalled.IsCancellationRequested && !token.IsCancellationRequested)
                 {
-                    throw new MergeFailedException(StalledMessage(watch), DescribeCommand(ffmpegPath, arguments));
+                    throw new FfmpegStalledException(
+                        StalledMessage(watch), DescribeCommand(ffmpegPath, arguments));
                 }
             }
 
@@ -1169,7 +1202,10 @@ namespace Mp4Merger.Core
             {
                 throw new MergeFailedException(
                     Localizer.Get("FfmpegCouldNotProcess", Language),
-                    DescribeCommand(ffmpegPath, arguments) + "\n\n" + result.StdErr);
+                    // The log view shows only the last 4000 characters, so the
+                    // command goes last to stay visible on a long failure.
+                    result.StdErr + "\n\n" + DescribeCommand(ffmpegPath, arguments),
+                    result.StdErr);
             }
         }
 
