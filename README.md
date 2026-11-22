@@ -17,8 +17,9 @@ The exe is not code-signed, so Windows SmartScreen warns on first launch; choose
 ## ✨ Key Features
 
 * **Normalize Audio (Volume Balancing):** When merging multiple clips, it analyzes and adjusts varying audio levels to a consistent, comfortable volume throughout the entire output video.
-* **Resolution Scaling & AI Upscaling:** Set your output size to **1080p FHD** or **4K UHD**. Additionally, you can utilize **Real-ESRGAN AI** to upscale your videos (including Anime-optimized models) for unprecedented clarity.
+* **Resolution Scaling & AI Upscaling:** Set your output size to **1080p FHD** or **4K UHD**, or hand the job to **Real-ESRGAN AI**. The two AI choices are named for how they finish rather than what you shot: **Keep Detail** holds on to fine texture such as skin and foliage, while **Smooth** removes noise more firmly, which suits anime and grainy old footage alike.
 * **Fix Jitter:** Reduces playback stutter and stabilizes video jitter for a smoother viewing experience.
+* **Gimbal Stabilization:** Smooths out handheld shake using vidstab's two-pass analysis.
 * **Native Windows Integration:**
     * **Hardware Acceleration Support:** Fully supports NVIDIA NVENC, Intel QSV, and AMD AMF encoders for lightning-fast exports.
     * **Zero Configuration:** Automatically downloads all required dependencies (FFmpeg & AI models) on first launch. No complicated paths or manual installations needed!
@@ -28,7 +29,7 @@ The exe is not code-signed, so Windows SmartScreen warns on first launch; choose
 
 ## 🚀 How to Use
 
-1. **Add Videos:** Drag and drop your video files into the central area. Use **[Sort by Name]** to organize them or **[Clear All]** to reset the list.
+1. **Add Videos:** Drag and drop your video files into the central area (MP4, MOV, M4V, MPG, MTS, M2TS, TS, AVI, MKV, WMV, WEBM and more). Use **[Sort by Name]** to organize them or **[Clear All]** to reset the list.
 2. **Configure Options:** In the **Options** panel (bottom-right):
    * Select your **Encoder** (Auto detects your GPU, or force CPU/NVIDIA/Intel/AMD).
    * Check **Normalize Audio** to balance sound, or **Fix Jitter** to stabilize frame sync.
@@ -88,8 +89,9 @@ MP4 Mergerは、Windowsユーザーのために新しく設計された直感的
 ## ✨ 主な機能
 
 * **音量の自動均一化 (Normalize Audio):** 複数の動画を結合する際、ファイルごとにバラバラな音量を解析し、全体を一定の聞き取りやすいレベルに自動調整します。
-* **解像度の指定＆AI超解像度 (Resolution & AI Upscale):** 出力サイズを **1080p FHD** や **4K UHD** に指定できるだけでなく、最新のAI技術（Real-ESRGAN）を用いて、実写やアニメを高画質のままアップスケールできます。
+* **解像度の指定＆AI超解像 (Resolution & AI Upscale):** 出力サイズを **1080p FHD** や **4K UHD** に指定できるほか、**Real-ESRGAN** による AI 超解像も選べます。AI の 2 つは「何を写したか」ではなく「どう仕上がるか」で名前を付けています。**細部を残す**は肌や木の葉の細かさを保ち、**なめらか**はノイズを強く消すので、アニメにも、ざらつきの多い古い映像にも向きます。
 * **映像の安定化補正 (Fix Jitter):** 動画特有の微細なカクつき（音ズレやジッター）を抑え、スムーズな再生を実現します。
+* **手ぶれ補正 (Stabilize):** vidstab の 2 パス解析で、手持ち撮影の揺れをなめらかにします。
 * **Windows専用設計:**
     * **ハードウェアエンコード対応:** NVIDIA NVENC, Intel QSV, AMD AMFなど、お使いのグラフィックボードを自動判別し、超高速で書き出しを行います。
     * **完全自動セットアップ:** 使うための面倒な初期設定は一切不要！初回起動時に自動で専用サーバーから「FFmpeg」や「AIモデル」をダウンロードして配置します。アップデートチェックも全自動です。
@@ -99,7 +101,7 @@ MP4 Mergerは、Windowsユーザーのために新しく設計された直感的
 
 ## 🚀 使い方
 
-1. **動画を読み込む:** 中央のエリアに動画をドラッグ＆ドロップします。 **[Sort by Name]** で名前順に整列させたり、**[Clear All]** でリストをリセットできます。
+1. **動画を読み込む:** 中央のエリアに動画をドラッグ＆ドロップします（MP4・MOV・M4V・MPG・MTS・M2TS・TS・AVI・MKV・WMV・WEBM など）。 **[Sort by Name]** で名前順に整列させたり、**[Clear All]** でリストをリセットできます。
 2. **オプションを選択:** 右下の **Options** パネルで設定を行います。
    * **Encoder:** 使うグラフィックボードを選択します（通常はAutoのままでOKです）。
    * 音量を揃えるなら **Normalize Audio**、動きのガタつきを抑えるなら **Fix Jitter** にチェックを入れます。
