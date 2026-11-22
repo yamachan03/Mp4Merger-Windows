@@ -953,7 +953,12 @@ namespace Mp4Merger.Core
             string input, MediaProbe? probe, double duration, int smoothing, bool hevc, MergeContext context,
             int clip, int totalClips, Action<double, string> reportProgress, CancellationToken token)
         {
-            string trfPath = context.Temp($"transform_{Guid.NewGuid():N}.trf");
+            // Named, not pathed: the name goes inside a filter string, so the
+            // folder is carried by ffmpeg's working directory instead. See
+            // VidstabFilters for what a path in there does.
+            string trfName = $"transform_{Guid.NewGuid():N}.trf";
+            string trfPath = context.Temp(trfName);
+            string workFolder = context.WorkDirectory.FullName;
             string output = context.Temp($"stabilized_{Guid.NewGuid():N}.mov");
 
             try
@@ -963,10 +968,10 @@ namespace Mp4Merger.Core
                 await RunFFmpegWithProgressAsync(new List<string>
                 {
                     "-i", input,
-                    "-vf", $"vidstabdetect=shakiness=5:accuracy=15:result={EscapeFilterPath(trfPath)}",
+                    "-vf", VidstabFilters.Detect(trfName, shakiness: 5, accuracy: 15),
                     "-f", "null", "-"
-                }, duration, 0, DateTime.UtcNow, pct => reportProgress(pct * 0.3, detectMessage), token)
-                    .ConfigureAwait(false);
+                }, duration, 0, DateTime.UtcNow, pct => reportProgress(pct * 0.3, detectMessage), token,
+                    workingDirectory: workFolder).ConfigureAwait(false);
 
                 // Pass 2: apply it, at the source's own size and bit rate.
                 var size = (probe?.Video?.Width ?? 0, probe?.Video?.Height ?? 0);
@@ -977,7 +982,7 @@ namespace Mp4Merger.Core
                 var args = new List<string>
                 {
                     "-i", input,
-                    "-vf", $"vidstabtransform=input={EscapeFilterPath(trfPath)}:smoothing={smoothing}:crop=black:optzoom=1"
+                    "-vf", VidstabFilters.Transform(trfName, smoothing)
                 };
                 args.AddRange(EncoderArguments(hevc, bitRate));
                 args.AddRange(new[]
@@ -990,7 +995,8 @@ namespace Mp4Merger.Core
 
                 string applyMessage = Localizer.GetDynamic("StabilizePass2", Language, clip.ToString(), totalClips.ToString());
                 await RunFFmpegWithProgressAsync(args, duration, 0, DateTime.UtcNow,
-                    pct => reportProgress(30.0 + pct * 0.7, applyMessage), token).ConfigureAwait(false);
+                    pct => reportProgress(30.0 + pct * 0.7, applyMessage), token,
+                    workingDirectory: workFolder).ConfigureAwait(false);
 
                 return output;
             }
@@ -999,11 +1005,6 @@ namespace Mp4Merger.Core
                 TryDelete(trfPath);
             }
         }
-
-        /// vidstab takes the transform file inside a filter string, where a
-        /// Windows path's backslashes and drive colon would be read as escapes.
-        private static string EscapeFilterPath(string path) =>
-            path.Replace("\\", "/").Replace(":", "\\:");
 
         // MARK: - Verification
 
@@ -1171,7 +1172,7 @@ namespace Mp4Merger.Core
 
         private async Task RunFFmpegWithProgressAsync(
             List<string> arguments, double totalDuration, double offsetDuration, DateTime startTime,
-            Action<double> reportProgress, CancellationToken token)
+            Action<double> reportProgress, CancellationToken token, string? workingDirectory = null)
         {
             string ffmpegPath = ResolveToolPath("ffmpeg");
 
@@ -1196,7 +1197,8 @@ namespace Mp4Merger.Core
             try
             {
                 result = await ProcessRunner.CaptureAsync(
-                    ffmpegPath, arguments, guard.Token, onStdErrLine: OnLine).ConfigureAwait(false);
+                    ffmpegPath, arguments, guard.Token, onStdErrLine: OnLine,
+                    workingDirectory: workingDirectory).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (guard.Stalled)
             {
