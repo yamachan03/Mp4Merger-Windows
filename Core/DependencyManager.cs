@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
@@ -142,8 +144,16 @@ namespace Mp4Merger.Core
             await VerifySha256Async(zipPath, expectedHash);
 
             reportProgress(55, "Extracting FFmpeg...");
-            ExtractFfmpeg(zipPath, AppPaths.EnsureDataDir());
-            if (File.Exists(zipPath)) File.Delete(zipPath);
+            try
+            {
+                ExtractFfmpeg(zipPath, AppPaths.EnsureDataDir());
+            }
+            finally
+            {
+                // A failed extract used to leave the 200MB download behind,
+                // because the delete sat after the call that threw.
+                TryDelete(zipPath);
+            }
 
             if (!string.IsNullOrEmpty(latestDate))
             {
@@ -166,8 +176,14 @@ namespace Mp4Merger.Core
             await VerifySha256Async(zipPath, RealEsrganZipSha256);
 
             reportProgress(100, "Extracting AI Upscaler...");
-            ExtractRealEsrgan(zipPath, AppPaths.EnsureDataDir());
-            if (File.Exists(zipPath)) File.Delete(zipPath);
+            try
+            {
+                ExtractRealEsrgan(zipPath, AppPaths.EnsureDataDir());
+            }
+            finally
+            {
+                TryDelete(zipPath);
+            }
 
             if (!string.IsNullOrEmpty(latestDate))
             {
@@ -199,24 +215,115 @@ namespace Mp4Merger.Core
             }
         }
 
+        /// The tools taken out of the FFmpeg zip. They are a matched pair: ffprobe
+        /// reads the formats ffmpeg writes, so one must never be newer than the other.
+        private static readonly string[] FfmpegTools = { "ffmpeg.exe", "ffprobe.exe" };
+
+        /// Both tools, unpacked beside the installed ones and only then swapped in.
+        ///
+        /// Extracting straight over the old files looked simpler but left the pair
+        /// mismatched: the zip holds ffprobe before ffmpeg, Windows refuses to
+        /// overwrite an exe that is running, and a merge in progress holds
+        /// ffmpeg.exe open. So ffprobe was replaced, ffmpeg threw, and the install
+        /// silently ended up with two different builds while the date file still
+        /// said the old one (2026-11-22, seen on this machine). Staging first means
+        /// either both land or neither does.
         private static void ExtractFfmpeg(string zipPath, string targetDir)
         {
             string root = Path.GetFullPath(targetDir);
             if (!root.EndsWith(Path.DirectorySeparatorChar)) root += Path.DirectorySeparatorChar;
 
-            using ZipArchive archive = ZipFile.OpenRead(zipPath);
-            foreach (var entry in archive.Entries)
+            var staged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
             {
-                if (entry.FullName.EndsWith("ffmpeg.exe", StringComparison.OrdinalIgnoreCase) ||
-                    entry.FullName.EndsWith("ffprobe.exe", StringComparison.OrdinalIgnoreCase))
+                using (ZipArchive archive = ZipFile.OpenRead(zipPath))
                 {
-                    // Zip Slip guard: entry.Name can still contain backslash sequences on Windows
-                    string destFile = Path.GetFullPath(Path.Combine(root, entry.Name));
-                    if (!destFile.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+                    foreach (var entry in archive.Entries)
+                    {
+                        string name = Path.GetFileName(entry.FullName);
+                        if (!FfmpegTools.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+                        if (staged.ContainsKey(name)) continue;
 
-                    entry.ExtractToFile(destFile, true);
+                        // Zip Slip guard: the entry's path can still try to climb out.
+                        string destFile = Path.GetFullPath(Path.Combine(root, name));
+                        if (!destFile.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        string stagedFile = destFile + StagedSuffix;
+                        entry.ExtractToFile(stagedFile, true);
+                        staged[name] = stagedFile;
+                    }
+                }
+
+                var missing = FfmpegTools.Where(tool => !staged.ContainsKey(tool)).ToList();
+                if (missing.Count > 0)
+                {
+                    // Nothing is swapped in, so the working install is untouched.
+                    throw new InvalidOperationException(
+                        "The FFmpeg download did not contain " + string.Join(" and ", missing) +
+                        ". Nothing was replaced.");
+                }
+
+                SwapIntoPlace(staged);
+            }
+            finally
+            {
+                // Anything still staged is left over from a failure.
+                foreach (string file in staged.Values) TryDelete(file);
+            }
+        }
+
+        private const string StagedSuffix = ".new";
+        private const string ReplacedSuffix = ".old";
+
+        /// Puts the staged tools in place together. A tool that is running cannot
+        /// be deleted or overwritten, but it can be renamed: the copy already in
+        /// use keeps running under the new name, and the leftover is cleared away
+        /// the next time an update runs. A swap that fails part way puts back
+        /// everything it moved, so the two tools never stay on different builds.
+        private static void SwapIntoPlace(IReadOnlyDictionary<string, string> staged)
+        {
+            var movedAside = new List<(string Live, string Aside)>();
+            var swappedIn = new List<string>();
+
+            try
+            {
+                foreach (var pair in staged)
+                {
+                    string stagedFile = pair.Value;
+                    string live = stagedFile.Substring(0, stagedFile.Length - StagedSuffix.Length);
+
+                    if (File.Exists(live))
+                    {
+                        string aside = live + ReplacedSuffix;
+                        TryDelete(aside);
+                        File.Move(live, aside);
+                        movedAside.Add((live, aside));
+                    }
+
+                    File.Move(stagedFile, live);
+                    swappedIn.Add(live);
                 }
             }
+            catch
+            {
+                foreach (string live in swappedIn)
+                {
+                    try { File.Move(live, live + StagedSuffix, true); } catch { }
+                }
+                foreach (var moved in movedAside)
+                {
+                    try { File.Move(moved.Aside, moved.Live, true); } catch { }
+                }
+                throw;
+            }
+
+            // Best effort: one still running cannot go until a later update.
+            foreach (var moved in movedAside) TryDelete(moved.Aside);
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); } catch { }
         }
 
         private static void ExtractRealEsrgan(string zipPath, string targetDir)
