@@ -325,9 +325,25 @@ namespace Mp4Merger
             ResOptFast.Content = (lang == "ja") ? "オリジナル（高速）" : "Original (Fast)";
             ResOpt1080.Content = (lang == "ja") ? "FHD 1080p (Lanczos)" : "FHD 1080p (Lanczos)";
             ResOpt4k.Content = (lang == "ja") ? "4K UHD (Lanczos)" : "4K UHD (Lanczos)";
+            // The two x4 choices differ in how much they smooth, not in what the
+            // footage is of: the "anime" model also suits grainy old live action,
+            // and naming it after the content kept that hidden. Measured
+            // 2026-11-22 on a 352x240 MPEG-1 clip, where it was the one that
+            // looked best. The tooltips say when to reach for each.
             ResOptAi1x.Content = (lang == "ja") ? "AI画質補正（等倍）" : "AI Enhance x1 (Same Resolution)";
-            ResOptAi4x.Content = (lang == "ja") ? "AI超解像 x4（実写）" : "AI Upscale x4 (Standard)";
-            ResOptAiAnime.Content = (lang == "ja") ? "AI超解像 x4（アニメ）" : "AI Upscale x4 (Anime)";
+            ResOptAi1x.ToolTip = (lang == "ja")
+                ? "大きさは変えずに、AI で粗さだけ整えます。"
+                : "Cleans the picture up with AI without changing its size.";
+
+            ResOptAi4x.Content = (lang == "ja") ? "AI超解像 x4（細部を残す）" : "AI Upscale x4 (Keep Detail)";
+            ResOptAi4x.ToolTip = (lang == "ja")
+                ? "写真のような実写向け。肌や木の葉の細かさを残します。"
+                : "For photographic footage: keeps fine texture such as skin and foliage.";
+
+            ResOptAiAnime.Content = (lang == "ja") ? "AI超解像 x4（なめらか）" : "AI Upscale x4 (Smooth)";
+            ResOptAiAnime.ToolTip = (lang == "ja")
+                ? "アニメや、ざらつきの多い古い映像向け。ノイズを強く消します。"
+                : "For anime and grainy old footage: removes noise more firmly.";
             StatusText.Text = Localizer.Get("Ready", lang);
         }
 

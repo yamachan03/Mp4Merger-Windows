@@ -149,8 +149,8 @@
                         <ComboBoxItem x:Name="ResOpt1080" Content="FHD 1080p (Lanczos)"/>
                         <ComboBoxItem x:Name="ResOpt4k" Content="4K UHD (Lanczos)"/>
                         <ComboBoxItem x:Name="ResOptAi1x" Content="AI画質補正（等倍）"/>
-                        <ComboBoxItem x:Name="ResOptAi4x" Content="AI超解像 x4（実写）"/>
-                        <ComboBoxItem x:Name="ResOptAiAnime" Content="AI超解像 x4（アニメ）"/>
+                        <ComboBoxItem x:Name="ResOptAi4x" Content="AI超解像 x4（細部を残す）"/>
+                        <ComboBoxItem x:Name="ResOptAiAnime" Content="AI超解像 x4（なめらか）"/>
                     </ComboBox>
                 </Grid>
 
