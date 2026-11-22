@@ -84,21 +84,7 @@ namespace Mp4Merger.Core
                 // not a "short" call; it does report a position, so it is guarded
                 // like the other long ones.
                 reportProgress(0, "Extracting audio...");
-                bool hasAudio;
-                try
-                {
-                    await RunGuardedAsync(_ffmpegPath, new[]
-                    {
-                        "-i", inputVideo, "-vn", "-acodec", "copy", "-y", audioFile
-                    }, token).ConfigureAwait(false);
-                    hasAudio = File.Exists(audioFile) && new FileInfo(audioFile).Length > 0;
-                }
-                catch (InvalidOperationException)
-                {
-                    // A video-only input is fine, and that is what a failure here
-                    // almost always means.
-                    hasAudio = false;
-                }
+                bool hasAudio = await ExtractAudioAsync(inputVideo, audioFile, token).ConfigureAwait(false);
 
                 // 3. Frames. %08d keeps the ordering correct past 99,999 frames.
                 //    Decoding every frame of a long video takes as long as the
@@ -228,6 +214,38 @@ namespace Mp4Merger.Core
                 probe?.Video?.FrameRate ?? "30",
                 probe?.Video?.Width ?? 0,
                 probe?.Video?.Height ?? 0);
+        }
+
+        /// Copies the audio out, and re-encodes it if it cannot be copied.
+        ///
+        /// Copying only works for a codec an .m4a can hold. The input used to be
+        /// a file this app had just written, so it was always AAC; now that the
+        /// filter pass is skipped when it has nothing to do, whatever the user
+        /// brought arrives here. A copy that fails used to mean "no audio", so
+        /// the track was dropped without a word.
+        private async Task<bool> ExtractAudioAsync(string input, string audioFile, CancellationToken token)
+        {
+            foreach (string[] codec in new[]
+            {
+                new[] { "-acodec", "copy" },
+                new[] { "-c:a", "aac", "-b:a", "192k" },
+            })
+            {
+                try
+                {
+                    var args = new List<string> { "-i", input, "-vn" };
+                    args.AddRange(codec);
+                    args.AddRange(new[] { "-y", audioFile });
+
+                    await RunGuardedAsync(_ffmpegPath, args, token).ConfigureAwait(false);
+                    if (File.Exists(audioFile) && new FileInfo(audioFile).Length > 0) return true;
+                }
+                catch (InvalidOperationException)
+                {
+                    // Try the next way; a video-only input fails both, which is fine.
+                }
+            }
+            return false;
         }
 
         /// Runs a long ffmpeg, cutting it off if it stops getting anywhere.
