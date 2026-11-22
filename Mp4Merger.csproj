@@ -21,4 +21,16 @@
     <Resource Include="icon.ico" />
   </ItemGroup>
 
+  <!-- This project has no explicit file list, so it would otherwise compile the
+       test project's sources into the app as well. The tests build on their own
+       and reference this project; they are deliberately not in a solution file,
+       because build_exe.bat publishes whatever it finds in this folder and a
+       test assembly must never land in ReleaseBuild. -->
+  <ItemGroup>
+    <Compile Remove="Tests\**" />
+    <None Remove="Tests\**" />
+    <EmbeddedResource Remove="Tests\**" />
+    <Page Remove="Tests\**" />
+  </ItemGroup>
+
 </Project>

@@ -89,18 +89,28 @@ namespace Mp4Merger.Core
             var outDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var errDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
+            // These handlers run on a reader thread, where nothing is waiting to
+            // catch anything they throw: an exception here takes the whole app
+            // down. A progress callback marshalling to the UI thread does throw
+            // once the window has gone away, which is reachable by quitting
+            // mid-run, so the line handlers are never allowed to escape.
+            void Deliver(Action<string>? handler, string line)
+            {
+                try { handler?.Invoke(line); } catch { }
+            }
+
             process.OutputDataReceived += (_, e) =>
             {
                 if (e.Data == null) { outDone.TrySetResult(true); return; }
                 stdout.AppendLine(e.Data);
-                onStdOutLine?.Invoke(e.Data);
+                Deliver(onStdOutLine, e.Data);
             };
             process.ErrorDataReceived += (_, e) =>
             {
                 if (e.Data == null) { errDone.TrySetResult(true); return; }
                 // Damage repeats every frame; keep the log bounded.
                 if (stderr.Length < stdErrLimit) stderr.AppendLine(e.Data);
-                onStdErrLine?.Invoke(e.Data);
+                Deliver(onStdErrLine, e.Data);
             };
 
             ChildProcesses.Start(process);

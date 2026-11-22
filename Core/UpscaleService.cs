@@ -52,11 +52,20 @@ namespace Mp4Merger.Core
                 bool hasAudio = audioResult.ExitCode == 0 && File.Exists(audioFile) && new FileInfo(audioFile).Length > 0;
 
                 // 3. Frames. %08d keeps the ordering correct past 99,999 frames.
+                //    Decoding every frame of a long video takes as long as the
+                //    upscale itself, so the bar has to move while it runs:
+                //    ffmpeg's own status line already carries the position.
                 reportProgress(5, "Extracting frames...");
                 await RunOrThrowAsync(_ffmpegPath, new[]
                 {
                     "-i", inputVideo, "-y", Path.Combine(framesDir, "%08d.png")
-                }, token).ConfigureAwait(false);
+                }, token, onStdErrLine: line =>
+                {
+                    if (FfmpegProgress.Percent(line, info.Duration, 0) is { } percent)
+                    {
+                        reportProgress(5 + percent * 0.05, "Extracting frames...");
+                    }
+                }).ConfigureAwait(false);
 
                 int frameCount = Directory.GetFiles(framesDir, "*.png").Length;
                 if (frameCount == 0) throw new InvalidOperationException("No frames could be extracted from the video.");
@@ -95,7 +104,13 @@ namespace Mp4Merger.Core
                 if (hasAudio) args.AddRange(new[] { "-c:a", "copy" });
                 args.AddRange(new[] { "-r", frameRate, "-y", tempOut });
 
-                await RunOrThrowAsync(_ffmpegPath, args, token).ConfigureAwait(false);
+                await RunOrThrowAsync(_ffmpegPath, args, token, onStdErrLine: line =>
+                {
+                    if (FfmpegProgress.Percent(line, info.Duration, 0) is { } percent)
+                    {
+                        reportProgress(90 + percent * 0.10, "Merging frames and audio...");
+                    }
+                }).ConfigureAwait(false);
 
                 if (File.Exists(outputVideo)) File.Delete(outputVideo);
                 File.Move(tempOut, outputVideo);
@@ -146,10 +161,11 @@ namespace Mp4Merger.Core
         }
 
         private static async Task RunOrThrowAsync(
-            string executable, IEnumerable<string> arguments, CancellationToken token, string? workingDirectory = null)
+            string executable, IEnumerable<string> arguments, CancellationToken token,
+            string? workingDirectory = null, Action<string>? onStdErrLine = null)
         {
             var result = await ProcessRunner.CaptureAsync(executable, arguments, token,
-                workingDirectory: workingDirectory).ConfigureAwait(false);
+                onStdErrLine: onStdErrLine, workingDirectory: workingDirectory).ConfigureAwait(false);
             if (result.ExitCode != 0)
             {
                 throw new InvalidOperationException(

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -289,7 +288,15 @@ namespace Mp4Merger.Core
                 EnsureNotAnInput(singleOutputFile, inputFiles);
 
                 double duration = probes[i]?.Duration ?? 0;
-                reportProgress((double)i / inputFiles.Count * 100,
+
+                // Each file owns an equal band of the overall bar. Stabilization,
+                // when it runs, takes the first half of that band, so the steps
+                // after it start where it left off: mapping them from the band's
+                // start instead would send the bar backwards mid-file.
+                var (stabilizeBand, convertBand) =
+                    ProgressBand.ForIndividualFile(i, inputFiles.Count, stabilize);
+
+                reportProgress(stabilizeBand.Start,
                     Localizer.GetDynamic("ProcessingFileOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString()));
 
                 string source = file;
@@ -297,7 +304,7 @@ namespace Mp4Merger.Core
                 {
                     source = await StabilizeAsync(file, probes[i], duration, stabilizeSmoothing, hevc, context,
                         i + 1, inputFiles.Count,
-                        (pct, msg) => reportProgress((double)i / inputFiles.Count * 100 + pct / inputFiles.Count * 0.5, msg),
+                        (pct, msg) => reportProgress(stabilizeBand.At(pct), msg),
                         token).ConfigureAwait(false);
                     probes[i] = (await ProbeEachAsync(new[] { source }, token).ConfigureAwait(false))[0];
                     duration = probes[i]?.Duration ?? duration;
@@ -306,14 +313,16 @@ namespace Mp4Merger.Core
                 if (resolution.StartsWith("AI_", StringComparison.Ordinal))
                 {
                     string tempPre = context.Temp($"pretmp_{Guid.NewGuid():N}.mp4");
+                    var (filterBand, upscaleBand) = convertBand.SplitForAiUpscale();
+
                     await EncodeOneAsync(source, tempPre, "Original", probes[i], fixJitter, hevc, normalize,
                         duration, null,
-                        pct => reportProgress((double)i / inputFiles.Count * 100 + pct / inputFiles.Count * 0.3,
+                        pct => reportProgress(filterBand.At(pct),
                             Localizer.GetDynamic("ProcessingFiltersOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
                         token).ConfigureAwait(false);
 
                     await RunAiUpscaleAsync(tempPre, singleOutputFile, resolution,
-                        pct => reportProgress((double)i / inputFiles.Count * 100 + 30.0 / inputFiles.Count + pct / inputFiles.Count * 0.7,
+                        pct => reportProgress(upscaleBand.At(pct),
                             Localizer.GetDynamic("ProcessingAiOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
                         token).ConfigureAwait(false);
                 }
@@ -321,7 +330,7 @@ namespace Mp4Merger.Core
                 {
                     await EncodeOneAsync(source, singleOutputFile, resolution, probes[i], fixJitter, hevc, normalize,
                         duration, null,
-                        pct => reportProgress((double)i / inputFiles.Count * 100 + pct / inputFiles.Count,
+                        pct => reportProgress(convertBand.At(pct),
                             Localizer.GetDynamic("ProcessingFileOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
                         token).ConfigureAwait(false);
                 }
@@ -363,12 +372,15 @@ namespace Mp4Merger.Core
             if (resolution.StartsWith("AI_", StringComparison.Ordinal))
             {
                 string tempMerge = context.Temp($"mergetmp_before_ai_{Guid.NewGuid():N}.mp4");
+                var (plainMergeBand, aiUpscaleBand) = ProgressBand.ForAiMerge();
+
                 await MergeAsync(inputFiles, tempMerge, "Original", fixJitter, stabilize, hevc, normalize,
                     stabilizeSmoothing, context,
-                    (pct, msg) => reportProgress(pct * 0.4, msg + " (AI 1/2)"), token).ConfigureAwait(false);
+                    (pct, msg) => reportProgress(plainMergeBand.At(pct), msg + " (AI 1/2)"), token)
+                    .ConfigureAwait(false);
 
                 await RunAiUpscaleAsync(tempMerge, outputFile, resolution,
-                    pct => reportProgress(40.0 + pct * 0.6,
+                    pct => reportProgress(aiUpscaleBand.At(pct),
                         Localizer.GetDynamic("AiUpscalingPhase", Language, pct.ToString("F1", CultureInfo.InvariantCulture))),
                     token).ConfigureAwait(false);
                 return;
@@ -379,6 +391,20 @@ namespace Mp4Merger.Core
             var workingFiles = new List<string>(inputFiles);
             var sourceProbes = await ProbeEachAsync(workingFiles, token).ConfigureAwait(false);
 
+            // Stabilization re-encodes every input before the merge even starts,
+            // so it takes the first part of the bar and every step after it is
+            // mapped into the rest. Letting both run 0-100 took the bar up to 100%
+            // and then back to 0 at "inspecting files".
+            //
+            // `report` is what the rest of this method reports through. Rewriting
+            // the `reportProgress` parameter instead works today but is a trap: a
+            // lambda captures the variable, not its value, so anything built
+            // before that point and called after it gets mapped twice.
+            var (stabilizeBand, mergeBand) = ProgressBand.ForMerge(stabilize);
+            Action<double, string> report = stabilize
+                ? (pct, msg) => reportProgress(mergeBand.At(pct), msg)
+                : reportProgress;
+
             // --- PRE-PROCESSING: Gimbal stabilization ---
             if (stabilize)
             {
@@ -386,9 +412,10 @@ namespace Mp4Merger.Core
                 for (int i = 0; i < workingFiles.Count; i++)
                 {
                     double duration = sourceProbes[i]?.Duration ?? 0;
+                    var clipBand = stabilizeBand.ForFileWithin(i, workingFiles.Count);
                     string result = await StabilizeAsync(workingFiles[i], sourceProbes[i], duration,
                         stabilizeSmoothing, hevc, context, i + 1, workingFiles.Count,
-                        (pct, msg) => reportProgress(((double)i / workingFiles.Count * 100) + pct / workingFiles.Count, msg),
+                        (pct, msg) => reportProgress(clipBand.At(pct), msg),
                         token).ConfigureAwait(false);
                     stabilized.Add(result);
                 }
@@ -401,7 +428,7 @@ namespace Mp4Merger.Core
             // and bit rate still guide a re-encode.
             if (workingFiles.Count > 1)
             {
-                reportProgress(0, Localizer.Get("InspectingFiles", Language));
+                report(0, Localizer.Get("InspectingFiles", Language));
                 var probes = await ProbeAsync(workingFiles, token).ConfigureAwait(false);
                 context.Report = MergeCompatibility.Analyze(probes);
                 sourceProbes = probes.Cast<MediaProbe?>().ToList();
@@ -413,17 +440,17 @@ namespace Mp4Merger.Core
             bool filtersActive = normalize || fixJitter || targetHeight != null || hevc;
             bool fastMergePossible = !filtersActive;
 
-            reportProgress(0, Localizer.Get(
+            report(0, Localizer.Get(
                 filtersActive || stabilize ? "ModeFilterReencode" : "ModeFastMerge", Language));
 
             // --- TIER 1 & 2: copy merge, after conforming what has to be conformed ---
             if (fastMergePossible)
             {
                 var failure = await CopyMergeConformingAsync(workingFiles, totalDuration, outputFile, context,
-                    reportProgress, token).ConfigureAwait(false);
+                    report, token).ConfigureAwait(false);
                 if (failure == null)
                 {
-                    reportProgress(100, Localizer.Get("Ready", Language));
+                    report(100, Localizer.Get("Ready", Language));
                     return;
                 }
 
@@ -434,18 +461,18 @@ namespace Mp4Merger.Core
                     + "\n\n" + Localizer.Get("FullReencodeQuestion", Language);
                 if (!await ConfirmAsync(question).ConfigureAwait(false)) throw failure;
 
-                reportProgress(0, Localizer.Get("FastMergeFailedReencoding", Language));
+                report(0, Localizer.Get("FastMergeFailedReencoding", Language));
             }
             else
             {
-                reportProgress(0, Localizer.Get("ProcessingWithReencoding", Language));
+                report(0, Localizer.Get("ProcessingWithReencoding", Language));
             }
 
             // --- TIER 3: re-encode every segment, then join ---
             await ReencodeAndConcatAsync(workingFiles, sourceProbes, outputFile, targetHeight, fixJitter,
-                hevc, normalize, totalDuration, context, reportProgress, token).ConfigureAwait(false);
+                hevc, normalize, totalDuration, context, report, token).ConfigureAwait(false);
 
-            reportProgress(100, Localizer.Get("Ready", Language));
+            report(100, Localizer.Get("Ready", Language));
         }
 
         // MARK: - Copy merge
@@ -1051,19 +1078,13 @@ namespace Mp4Merger.Core
             Action<double> reportProgress, CancellationToken token)
         {
             string ffmpegPath = ResolveToolPath("ffmpeg");
-            var timePattern = new Regex(@"time=(\d{2}):(\d{2}):(\d{2}\.\d{2})", RegexOptions.Compiled);
 
             void OnLine(string line)
             {
-                if (totalDuration <= 0) return;
-                var match = timePattern.Match(line);
-                if (!match.Success) return;
-
-                double seconds = int.Parse(match.Groups[1].Value) * 3600
-                               + int.Parse(match.Groups[2].Value) * 60
-                               + double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
-                double processed = offsetDuration + seconds;
-                reportProgress(Math.Clamp(processed / totalDuration * 100.0, 0, 100));
+                if (FfmpegProgress.Percent(line, totalDuration, offsetDuration) is { } percent)
+                {
+                    reportProgress(percent);
+                }
             }
 
             var result = await ProcessRunner.CaptureAsync(ffmpegPath, arguments, token, onStdErrLine: OnLine)
