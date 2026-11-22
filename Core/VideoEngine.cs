@@ -961,6 +961,19 @@ namespace Mp4Merger.Core
         /// does not match the packets after a join leaves the tail undecodable.
         private async Task VerifyOutputAsync(string path, double? expectedDuration, double tolerance, CancellationToken token)
         {
+            await VerifyDecodableTailAsync(path, token).ConfigureAwait(false);
+
+            if (expectedDuration is { } expected)
+            {
+                await VerifyContainerDurationAsync(path, expected, tolerance, token).ConfigureAwait(false);
+            }
+        }
+
+        /// The last second has to decode. Split out so a caller that goes on to
+        /// probe the whole file can run this check without the length-only
+        /// ffprobe below, which asks for what the full probe already returns.
+        private async Task VerifyDecodableTailAsync(string path, CancellationToken token)
+        {
             string ffmpegPath = ResolveToolPath("ffmpeg");
             var tail = await ProcessRunner.CaptureAsync(ffmpegPath,
                 new[] { "-v", "error", "-sseof", "-1", "-i", path, "-f", "null", "-" }, token).ConfigureAwait(false);
@@ -970,9 +983,11 @@ namespace Mp4Merger.Core
             {
                 throw new VerificationFailure(MergeDiagnosis.Classify(findings), tail.StdErr);
             }
+        }
 
-            if (expectedDuration is not { } expected) return;
-
+        private async Task VerifyContainerDurationAsync(
+            string path, double expected, double tolerance, CancellationToken token)
+        {
             string ffprobePath = ResolveToolPath("ffprobe");
             var result = await ProcessRunner.CaptureAsync(ffprobePath, new[]
             {
@@ -982,13 +997,18 @@ namespace Mp4Merger.Core
 
             if (double.TryParse(result.StdOut.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double actual))
             {
-                double difference = Math.Abs(actual - expected);
-                if (difference > tolerance)
-                {
-                    throw new VerificationFailure(
-                        new MergeDiagnosis.Failure.VideoDuration(expected, actual),
-                        $"Duration mismatch: expected {expected:F2}s, got {actual:F2}s (difference {difference:F2}s).");
-                }
+                CheckContainerDuration(expected, actual, tolerance);
+            }
+        }
+
+        private static void CheckContainerDuration(double expected, double actual, double tolerance)
+        {
+            double difference = Math.Abs(actual - expected);
+            if (difference > tolerance)
+            {
+                throw new VerificationFailure(
+                    new MergeDiagnosis.Failure.VideoDuration(expected, actual),
+                    $"Duration mismatch: expected {expected:F2}s, got {actual:F2}s (difference {difference:F2}s).");
             }
         }
 
@@ -1000,11 +1020,34 @@ namespace Mp4Merger.Core
             Action<double, string> reportProgress, CancellationToken token)
         {
             reportProgress(100, Localizer.Get("VerifyingMergedFile", Language));
-            await VerifyOutputAsync(path, totalDuration, 5.0, token).ConfigureAwait(false);
+            await VerifyDecodableTailAsync(path, token).ConfigureAwait(false);
 
-            if (context.Report is not { } report) return;
+            if (context.Report is not { } report)
+            {
+                // Without the inputs' own lengths there is nothing to compare
+                // track by track, so the container duration is all there is.
+                await VerifyContainerDurationAsync(path, totalDuration, 5.0, token).ConfigureAwait(false);
+                return;
+            }
 
+            // The whole-file probe already carries the container duration, so the
+            // length-only ffprobe asks the same question twice: 46 ms of the
+            // 1142 ms a five-file copy merge took (measured 2026-11-08).
             var output = (await ProbeAsync(new[] { path }, token).ConfigureAwait(false))[0];
+            if (output.Duration > 0)
+            {
+                CheckContainerDuration(totalDuration, output.Duration, 5.0);
+            }
+            else
+            {
+                // MediaProbe.Duration is 0 both for a file ffprobe says is 0s long
+                // and for one whose format carries no duration at all, and an
+                // empty output has to fail rather than pass. Asking again for the
+                // length alone tells the two apart, as the check did before — the
+                // extra ffprobe only happens on output this broken.
+                await VerifyContainerDurationAsync(path, totalDuration, 5.0, token).ConfigureAwait(false);
+            }
+
             double tolerance = 0.5 + 0.1 * report.Probes.Count;
 
             var videoDurations = report.Probes.Where(p => p.Video != null).Select(p => p.VideoDuration).ToList();
