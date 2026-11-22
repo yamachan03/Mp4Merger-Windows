@@ -14,6 +14,25 @@
 - [ ] リリース番号は `Mp4Merger.csproj` の `<Version>` だけを変える。
       画面表示はアセンブリから、`setup.iss` はビルドしたexeから読むので、他に書く場所はありません。
 
+## zip を作る
+
+```powershell
+.uild_exe.bat      # 先に ReleaseBuild を作り直す
+.\make_zip.ps1       # dist\Mp4Merger-<版>-win-x64.zip ができる
+```
+
+`make_zip.ps1` が守ってくれること。
+
+- **exe ひとつだけ**を名指しで入れる（`ReleaseBuild` を丸ごと固めない）
+- 入れなかったものを**名前を出して報告**する（`.pdb` や、うっかり置いた `ffmpeg.exe` など）
+- できた zip の中身を**開いて確かめる**。ffmpeg・ffprobe・realesrgan・`.pdb`・動画が
+  混ざっていたら中止する
+- 版番号は **exe から読む**（`Mp4Merger.csproj` の `<Version>` が唯一の出どころ）
+- **exe よりソースが新しければ中止**する（ビルドし忘れて古いものを配る事故を防ぐ）
+- SHA-256 を出す（公開時に添えられる）
+
+**起動の確認だけは自動にできない。**空のフォルダに exe だけを置いて開くこと。
+
 ## GitHub Releases に成果物を上げるときの注意
 
 - [ ] アップロードするのは **`setup.iss` で作成したインストーラー（Mp4Merger_Setup.exe）** または

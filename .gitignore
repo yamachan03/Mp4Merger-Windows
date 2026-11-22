@@ -16,6 +16,7 @@ bld/
 *.log
 ReleaseBuild/
 Installer/
+dist/
 
 # Visual Studio files
 .vs/
