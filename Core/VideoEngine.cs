@@ -507,8 +507,15 @@ namespace Mp4Merger.Core
             bool filtersActive = normalize || fixJitter || targetHeight != null || hevc;
             bool fastMergePossible = !filtersActive;
 
+            // This line says how the *merge* will be done, and stabilization has
+            // already finished by now, so it must not count. Including it said
+            // "filter / re-encode" and then the copy merge said "fast merge" over
+            // the top of it, leaving the user unable to tell which had happened.
+            // Stabilization is still announced: its own two passes report
+            // StabilizePass1 and StabilizePass2 while they run, and the warning
+            // before the run starts counts it through GetReencodeReasons.
             report(0, Localizer.Get(
-                filtersActive || stabilize ? "ModeFilterReencode" : "ModeFastMerge", Language));
+                filtersActive ? "ModeFilterReencode" : "ModeFastMerge", Language));
 
             // --- TIER 1 & 2: copy merge, after conforming what has to be conformed ---
             if (fastMergePossible)
