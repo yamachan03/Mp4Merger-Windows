@@ -110,6 +110,10 @@ namespace Mp4Merger.Core
             { "FfmpegCouldNotProcess", "FFmpegでファイルを処理できませんでした。" },
             { "FfmpegStalled", "FFmpegが応答しなくなりました（動画の {0} の位置から {1} 分間、まったく進みませんでした）。\n処理を中止しました。" },
             { "FfmpegStalledAtStart", "FFmpegが応答しなくなりました（開始から {0} 分間、まったく進みませんでした）。\n処理を中止しました。" },
+            { "AiUpscalerStalled", "AI拡大が応答しなくなりました（{0} 分間、新しいフレームが 1 枚も書かれませんでした）。\n処理を中止しました。" },
+            { "CheckStalled", "検査を中止しました（動画の {0} の位置から {1} 分間、まったく進みませんでした）。" },
+            { "CheckStalledAtStart", "検査を中止しました（{0} 分間、まったく読み進みませんでした）。" },
+            { "ToolTimedOut", "{0} が {1} 秒以内に終わりませんでした。処理を中止しました。" },
             { "SeeLogForDetails", "詳しくは「ログを表示」で確認できます。" },
             { "ShowLog", "ログを表示" },
 
@@ -252,6 +256,10 @@ namespace Mp4Merger.Core
             { "FfmpegCouldNotProcess", "FFmpeg could not process the files." },
             { "FfmpegStalled", "FFmpeg stopped responding: nothing moved for {1} minutes from {0} into the video.\nThe run was stopped." },
             { "FfmpegStalledAtStart", "FFmpeg stopped responding: nothing moved for {0} minutes after it started.\nThe run was stopped." },
+            { "AiUpscalerStalled", "The AI upscaler stopped responding: no new frame was written for {0} minutes.\nThe run was stopped." },
+            { "CheckStalled", "The check was stopped: nothing moved for {1} minutes from {0} into the file." },
+            { "CheckStalledAtStart", "The check was stopped: it read nothing at all for {0} minutes." },
+            { "ToolTimedOut", "{0} did not finish within {1} seconds. The run was stopped." },
             { "SeeLogForDetails", "See \"Show Log\" for details." },
             { "ShowLog", "Show Log" },
 

@@ -28,6 +28,20 @@ namespace Mp4Merger.Core
 
         public string Language { get; set; } = "ja";
 
+        /// Why a check was stopped, in the user's language. Passed to the checker
+        /// so the wording stays here with the rest of the screen's wording.
+        private string DescribeStall(double? positionSeconds)
+        {
+            string minutes = ((int)StallGuard.Limit.TotalMinutes)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (positionSeconds is not { } position)
+            {
+                return Localizer.GetDynamic("CheckStalledAtStart", Language, minutes);
+            }
+            return Localizer.GetDynamic("CheckStalled", Language,
+                TimeSpan.FromSeconds(position).ToString(@"hh\\:mm\\:ss"), minutes);
+        }
+
         private List<string> _droppedPaths = new();
         private CancellationTokenSource? _scanCts;
         private CancellationTokenSource? _checkCts;
@@ -165,7 +179,7 @@ namespace Mp4Merger.Core
             {
                 try
                 {
-                    var checker = new VideoIntegrityChecker(_ffmpegPath, _ffprobePath);
+                    var checker = new VideoIntegrityChecker(_ffmpegPath, _ffprobePath, DescribeStall);
                     var files = VideoIntegrityChecker.CollectVideos(paths, recursive);
                     var inspected = await checker.InspectAsync(files, token).ConfigureAwait(false);
                     if (token.IsCancellationRequested) return;
@@ -232,7 +246,7 @@ namespace Mp4Merger.Core
             var level = Level;
             var startedAt = DateTime.UtcNow;
             double totalCost = queue.Sum(t => t.EstimatedCost);
-            var checker = new VideoIntegrityChecker(_ffmpegPath, _ffprobePath);
+            var checker = new VideoIntegrityChecker(_ffmpegPath, _ffprobePath, DescribeStall);
 
             int next = -1;
             async Task Worker()

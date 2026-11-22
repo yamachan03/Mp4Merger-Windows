@@ -34,6 +34,7 @@ namespace Mp4Merger.Core
         private readonly CancellationTokenSource _source;
         private readonly StallWatch _watch;
         private readonly Timer _timer;
+        private readonly TimeSpan _allowance;
         private volatile bool _stalled;
 
         public StallGuard(CancellationToken userToken)
@@ -48,8 +49,14 @@ namespace Mp4Merger.Core
             _userToken = userToken;
             _source = CancellationTokenSource.CreateLinkedTokenSource(userToken);
             _watch = new StallWatch(checksAllowed);
+            _allowance = checkEvery * Math.Max(checksAllowed, 1);
             _timer = new Timer(_ => Check(), null, checkEvery, checkEvery);
         }
+
+        /// How long this guard actually allows. Messages must quote this rather
+        /// than the shipped default: a run given a longer allowance would
+        /// otherwise tell the user the wrong number.
+        public TimeSpan Allowance => _allowance;
 
         /// Run the tool with this instead of the user's token.
         public CancellationToken Token => _source.Token;
@@ -68,14 +75,26 @@ namespace Mp4Merger.Core
 
         private void Check()
         {
-            // The user getting there first is their decision, not a stall.
-            if (_userToken.IsCancellationRequested) return;
-            if (!_watch.CheckSaysStalled()) return;
+            // This runs on a timer thread, where nothing is waiting to catch
+            // anything it throws: an exception here takes the whole app down.
+            // Dispose does not wait for a callback already running, so this can
+            // land after the source is gone; Cancel then throws, and Cancel also
+            // wraps anything its own registrations throw. None of that is worth
+            // dying for, so nothing is allowed out.
+            try
+            {
+                // The user getting there first is their decision, not a stall.
+                if (_userToken.IsCancellationRequested) return;
+                if (!_watch.CheckSaysStalled()) return;
 
-            _stalled = true;
-            // Timer.Dispose does not wait for a callback already running, so this
-            // can land after the source is gone, and Cancel then throws.
-            try { _source.Cancel(); } catch (ObjectDisposedException) { }
+                _stalled = true;
+                _source.Cancel();
+            }
+            catch
+            {
+                // Already disposed, or a registration threw: either way the run
+                // is over and there is nobody left to tell.
+            }
         }
 
         public void Dispose()

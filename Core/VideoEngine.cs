@@ -163,7 +163,8 @@ namespace Mp4Merger.Core
         /// exit status, so it reported damaged files as clean.
         public async Task<CheckResult> VerifyFileAsync(string filePath, CancellationToken token)
         {
-            var checker = new VideoIntegrityChecker(ResolveToolPath("ffmpeg"), ResolveToolPath("ffprobe"));
+            var checker = new VideoIntegrityChecker(
+                ResolveToolPath("ffmpeg"), ResolveToolPath("ffprobe"), CheckStalledMessage);
             var targets = await checker.InspectAsync(new[] { filePath }, token).ConfigureAwait(false);
             return await checker.CheckAsync(targets[0], CheckLevel.Full, _ => { }, token).ConfigureAwait(false);
         }
@@ -261,6 +262,15 @@ namespace Mp4Merger.Core
             catch (CancelledByUserException ex)
             {
                 throw new MergeFailedException(ex.Message, "");
+            }
+            catch (ToolTimedOutException timeout)
+            {
+                // Otherwise this reaches the window as raw English from
+                // ProcessRunner, on a screen that is otherwise in Japanese.
+                throw new MergeFailedException(
+                    Localizer.GetDynamic("ToolTimedOut", Language, timeout.Tool,
+                        ((int)timeout.Limit.TotalSeconds).ToString(CultureInfo.InvariantCulture)),
+                    timeout.Message);
             }
             finally
             {
@@ -660,9 +670,11 @@ namespace Mp4Merger.Core
                 return;
             }
             catch (OperationCanceledException) { throw; }
-            // A hang is not worth retrying another way: the next tier
-            // would wait out the stall limit again, once per input.
+            // Neither a hang nor a tool that ran out of time is worth retrying
+            // another way: the next tier would wait the whole thing out again,
+            // once per input, and then still ask about re-encoding everything.
             catch (FfmpegStalledException) { throw; }
+            catch (ToolTimedOutException) { throw; }
             catch (Exception error)
             {
                 Debug.WriteLine("Tier 1 failed: " + error.Message);
@@ -720,9 +732,11 @@ namespace Mp4Merger.Core
                 Debug.WriteLine("Tier 2 succeeded.");
             }
             catch (OperationCanceledException) { throw; }
-            // A hang is not worth retrying another way: the next tier
-            // would wait out the stall limit again, once per input.
+            // Neither a hang nor a tool that ran out of time is worth retrying
+            // another way: the next tier would wait the whole thing out again,
+            // once per input, and then still ask about re-encoding everything.
             catch (FfmpegStalledException) { throw; }
+            catch (ToolTimedOutException) { throw; }
             catch (Exception error)
             {
                 Debug.WriteLine("Tier 2 failed: " + error.Message);
@@ -1147,7 +1161,8 @@ namespace Mp4Merger.Core
             string modelName = resolution == "AI_Anime" ? "realesrgan-x4plus-anime" : "realesrgan-x4plus";
             bool keepResolution = resolution == "AI_1x";
             var service = new UpscaleService(
-                ResolveToolPath("ffmpeg"), ResolveToolPath("realesrgan-ncnn-vulkan"), StalledMessage);
+                ResolveToolPath("ffmpeg"), ResolveToolPath("realesrgan-ncnn-vulkan"),
+                StalledMessage, UpscalerStalledMessage);
             await service.UpscaleVideoAsync(input, output, modelName, keepResolution,
                 (pct, _) => reportProgress(pct), token).ConfigureAwait(false);
         }
@@ -1214,6 +1229,24 @@ namespace Mp4Merger.Core
             var at = TimeSpan.FromSeconds(position);
             return Localizer.GetDynamic("FfmpegStalled", Language, at.ToString(@"hh\:mm\:ss"), minutes);
         }
+
+        /// Why a check was stopped, naming where it got to.
+        internal string CheckStalledMessage(double? positionSeconds)
+        {
+            string minutes = ((int)StallGuard.Limit.TotalMinutes).ToString(CultureInfo.InvariantCulture);
+            if (positionSeconds is not { } position)
+            {
+                return Localizer.GetDynamic("CheckStalledAtStart", Language, minutes);
+            }
+            return Localizer.GetDynamic("CheckStalled", Language,
+                TimeSpan.FromSeconds(position).ToString(@"hh\\:mm\\:ss"), minutes);
+        }
+
+        /// Why the AI upscaler was cut off. It reports no position of its own,
+        /// so the allowance it was given is all there is to say.
+        internal string UpscalerStalledMessage(TimeSpan allowance) =>
+            Localizer.GetDynamic("AiUpscalerStalled", Language,
+                ((int)allowance.TotalMinutes).ToString(CultureInfo.InvariantCulture));
 
         /// The tool and its arguments, for the log. Which build of ffmpeg ran
         /// matters too: it comes from BtbN's "latest" tag, so the exact binary

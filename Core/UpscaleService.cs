@@ -12,26 +12,44 @@ namespace Mp4Merger.Core
     /// macOS build, which relies on ffmpeg alone.
     public class UpscaleService
     {
-        /// Long enough for a tool with nothing to report: reading a file's
-        /// details, or copying its audio out.
-        private static readonly TimeSpan ShortToolLimit = TimeSpan.FromMinutes(2);
+        /// Reading a file's details reports no progress, so it gets a plain
+        /// limit. Generous, for a file still coming down from cloud sync.
+        private static readonly TimeSpan ProbeLimit = TimeSpan.FromMinutes(2);
+
+        /// How long Real-ESRGAN may go without finishing a frame. Far longer
+        /// than the default: what it is given is a frame of the source at its own
+        /// size, upscaled four times, so one frame of a 4K source is 15360x8640
+        /// and a weak GPU can spend minutes on it -- the first one longest, with
+        /// the model and Vulkan still loading. Cutting it off wrongly throws away
+        /// every frame extracted so far, which can be hours of work, while
+        /// noticing a real hang late only costs the wait.
+        private static readonly TimeSpan UpscalerAllowance = TimeSpan.FromMinutes(20);
 
         private readonly string _ffmpegPath;
         private readonly string _realesrganPath;
         private readonly Func<double?, string> _describeStall;
+        private readonly Func<TimeSpan, string> _describeUpscalerStall;
 
-        /// `describeStall` turns the position a run stopped at into the message
-        /// the user sees, so the wording lives with the rest of the app's
-        /// wording rather than here.
+        /// The two describers turn a cut-off run into the message the user sees,
+        /// so the wording lives with the rest of the app's wording rather than
+        /// here: `describeStall` for ffmpeg, which reports a position, and
+        /// `describeUpscalerStall` for Real-ESRGAN, which only produces frames
+        /// and so can report nothing but how long it was given.
         public UpscaleService(
             string ffmpegPath,
             string realesrganPath,
-            Func<double?, string>? describeStall = null)
+            Func<double?, string>? describeStall = null,
+            Func<TimeSpan, string>? describeUpscalerStall = null)
         {
             _ffmpegPath = ffmpegPath;
             _realesrganPath = realesrganPath;
             _describeStall = describeStall ?? DescribeStallInEnglish;
+            _describeUpscalerStall = describeUpscalerStall ?? DescribeUpscalerStallInEnglish;
         }
+
+        private static string DescribeUpscalerStallInEnglish(TimeSpan allowance) =>
+            $"The AI upscaler stopped responding: no new frame was written for "
+            + $"{allowance.TotalMinutes:F0} minutes.";
 
         private static string DescribeStallInEnglish(double? position) =>
             position is { } seconds
@@ -62,12 +80,25 @@ namespace Mp4Merger.Core
                 string frameRate = info.FrameRate.Length > 0 ? info.FrameRate : "30";
 
                 // 2. Audio, if the file has any. A video-only input is fine.
+                // Copying the audio out still reads the whole input, so this is
+                // not a "short" call; it does report a position, so it is guarded
+                // like the other long ones.
                 reportProgress(0, "Extracting audio...");
-                var audioResult = await ProcessRunner.CaptureAsync(_ffmpegPath, new[]
+                bool hasAudio;
+                try
                 {
-                    "-i", inputVideo, "-vn", "-acodec", "copy", "-y", audioFile
-                }, token, timeout: ShortToolLimit).ConfigureAwait(false);
-                bool hasAudio = audioResult.ExitCode == 0 && File.Exists(audioFile) && new FileInfo(audioFile).Length > 0;
+                    await RunGuardedAsync(_ffmpegPath, new[]
+                    {
+                        "-i", inputVideo, "-vn", "-acodec", "copy", "-y", audioFile
+                    }, token).ConfigureAwait(false);
+                    hasAudio = File.Exists(audioFile) && new FileInfo(audioFile).Length > 0;
+                }
+                catch (InvalidOperationException)
+                {
+                    // A video-only input is fine, and that is what a failure here
+                    // almost always means.
+                    hasAudio = false;
+                }
 
                 // 3. Frames. %08d keeps the ordering correct past 99,999 frames.
                 //    Decoding every frame of a long video takes as long as the
@@ -92,30 +123,33 @@ namespace Mp4Merger.Core
                 //    output folder is polled while it runs. That count is also
                 //    the only sign of life it has, so it doubles as what the
                 //    guard watches: frames written stand in for a position.
-                using var upscaleDone = new CancellationTokenSource();
-                using var guard = new StallGuard(token);
-                var watcher = WatchProgressAsync(
-                    upscaledDir, frameCount, reportProgress, guard, upscaleDone.Token);
+                using (var upscaleDone = new CancellationTokenSource())
+                using (var guard = new StallGuard(
+                    token,
+                    (int)(UpscalerAllowance / StallGuard.CheckEvery),
+                    StallGuard.CheckEvery))
+                {
+                    var watcher = WatchProgressAsync(
+                        upscaledDir, frameCount, reportProgress, guard, upscaleDone.Token);
 
-                try
-                {
-                    // realesrgan resolves its default "models" folder relative to the
-                    // working directory, so run it where the exe (and models) live.
-                    await RunOrThrowAsync(_realesrganPath, new[]
+                    try
                     {
-                        "-i", framesDir, "-o", upscaledDir, "-n", modelName, "-s", "4", "-f", "png"
-                    }, guard.Token, Path.GetDirectoryName(_realesrganPath)).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (guard.Stalled)
-                {
-                    throw new InvalidOperationException(
-                        "The AI upscaler stopped responding: no new frame was written for "
-                        + $"{StallGuard.Limit.TotalMinutes:F0} minutes.");
-                }
-                finally
-                {
-                    upscaleDone.Cancel();
-                    await watcher.ConfigureAwait(false);
+                        // realesrgan resolves its default "models" folder relative to the
+                        // working directory, so run it where the exe (and models) live.
+                        await RunOrThrowAsync(_realesrganPath, new[]
+                        {
+                            "-i", framesDir, "-o", upscaledDir, "-n", modelName, "-s", "4", "-f", "png"
+                        }, guard.Token, Path.GetDirectoryName(_realesrganPath)).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (guard.Stalled)
+                    {
+                        throw new InvalidOperationException(_describeUpscalerStall(guard.Allowance));
+                    }
+                    finally
+                    {
+                        upscaleDone.Cancel();
+                        await watcher.ConfigureAwait(false);
+                    }
                 }
 
                 // 5. Rebuild the video from the upscaled frames.
@@ -167,7 +201,12 @@ namespace Mp4Merger.Core
                     guard.Advance(finished);
                     double percent = 10 + (double)finished / total * 80; // 10% to 90%
                     reportProgress(percent, $"Upscaling frames ({finished}/{total})...");
-                    if (finished >= total) return;
+
+                    // Deliberately not returning once the count is reached.
+                    // Directory.GetFiles counts a file still being written, so the
+                    // count fills up slightly before the work is done; stopping
+                    // here would leave the guard with nothing to feed it and it
+                    // would fire on a run that was simply finishing off.
                 }
             }
             catch (OperationCanceledException) { /* the upscale finished */ }
@@ -181,7 +220,7 @@ namespace Mp4Merger.Core
             if (!File.Exists(ffprobePath)) ffprobePath = AppPaths.ResolveTool("ffprobe");
 
             var result = await ProcessRunner.CaptureAsync(ffprobePath, MediaProbe.FfprobeArguments(file), token,
-                timeout: ShortToolLimit).ConfigureAwait(false);
+                timeout: ProbeLimit).ConfigureAwait(false);
             var probe = MediaProbe.Parse(result.StdOut, file);
 
             return (

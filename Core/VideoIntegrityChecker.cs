@@ -98,14 +98,30 @@ namespace Mp4Merger.Core
 
     public sealed class VideoIntegrityChecker
     {
+        private readonly Func<double?, string> _describeStall;
         private readonly string _ffmpegPath;
         private readonly string _ffprobePath;
 
-        public VideoIntegrityChecker(string ffmpegPath, string ffprobePath)
+        /// `describeStall` turns the position a stopped check reached into the
+        /// line shown against that file, so the wording lives with the rest of
+        /// the app's wording rather than here.
+        public VideoIntegrityChecker(
+            string ffmpegPath,
+            string ffprobePath,
+            Func<double?, string>? describeStall = null)
         {
             _ffmpegPath = ffmpegPath;
             _ffprobePath = ffprobePath;
+            _describeStall = describeStall ?? DescribeStallInEnglish;
         }
+
+        private static string DescribeStallInEnglish(double? position) =>
+            position is { } at
+                ? "The check was stopped: nothing moved for "
+                  + $"{StallGuard.Limit.TotalMinutes:F0} minutes from "
+                  + TimeSpan.FromSeconds(at).ToString("c") + " into the file."
+                : "The check was stopped: it read nothing at all for "
+                  + $"{StallGuard.Limit.TotalMinutes:F0} minutes.";
 
         // A single full decode already spreads across several cores, so more
         // workers mostly contend. One per four cores, never more than four.
@@ -301,15 +317,11 @@ namespace Mp4Merger.Core
             {
                 // Not proof the file is damaged, so not Broken: the check simply
                 // could not be finished.
-                string where = guard.Position is { } at
-                    ? TimeSpan.FromSeconds(at).ToString("c") + " into the file"
-                    : "before it read anything";
                 return new CheckResult
                 {
                     Path = target.Path,
                     Status = CheckStatus.Warning,
-                    Log = "The check was stopped: ffmpeg made no progress for "
-                          + $"{StallGuard.Limit.TotalMinutes:F0} minutes, {where}.",
+                    Log = _describeStall(guard.Position),
                     Duration = target.Duration,
                     Elapsed = DateTime.UtcNow - startedAt
                 };

@@ -115,6 +115,7 @@ namespace Mp4Merger.Core
             process.StartInfo.RedirectStandardInput = true;
             process.EnableRaisingEvents = true;
 
+            bool exited = false;
             var stdout = new StringBuilder();
             var stderr = new StringBuilder();
             var outDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -188,6 +189,8 @@ namespace Mp4Merger.Core
                     }
                 }
 
+                exited = exit.IsCompleted;
+
                 // Let the redirected readers drain before reading the buffers.
                 await Task.WhenAny(Task.WhenAll(outDone.Task, errDone.Task), Task.Delay(2000)).ConfigureAwait(false);
             }
@@ -198,7 +201,9 @@ namespace Mp4Merger.Core
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (limit?.IsCancellationRequested == true)
+            // A run that finished cleanly keeps its result even if the limit
+            // expired in the moment between the two.
+            if (limit?.IsCancellationRequested == true && !(exited && process.ExitCode == 0))
             {
                 throw new ToolTimedOutException(Path.GetFileName(executable), timeout!.Value);
             }
