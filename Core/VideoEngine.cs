@@ -1116,30 +1116,82 @@ namespace Mp4Merger.Core
 
         // MARK: - Running ffmpeg
 
+        /// How long a long-running ffmpeg may report nothing new before it counts
+        /// as hung. It reports its position about twice a second even when it is
+        /// crawling, so this is silence, not slowness.
+        private static readonly TimeSpan FfmpegStallLimit = TimeSpan.FromMinutes(3);
+
         private async Task RunFFmpegWithProgressAsync(
             List<string> arguments, double totalDuration, double offsetDuration, DateTime startTime,
             Action<double> reportProgress, CancellationToken token)
         {
             string ffmpegPath = ResolveToolPath("ffmpeg");
 
+            // ffmpeg can stop getting anywhere while its process stays open, and
+            // nothing here used to notice: the app waited on CancellationToken.None,
+            // so whatever the cause the symptom was always "no response, forever"
+            // with nothing in the log. The watch below turns that into an error
+            // that names where it stopped.
+            var watch = new StallWatch(FfmpegStallLimit, DateTime.UtcNow);
+            using var stalled = CancellationTokenSource.CreateLinkedTokenSource(token);
+            bool killedForStalling = false;
+
             void OnLine(string line)
             {
+                watch.Advance(FfmpegProgress.PositionSeconds(line), DateTime.UtcNow);
+
                 if (FfmpegProgress.Percent(line, totalDuration, offsetDuration) is { } percent)
                 {
                     reportProgress(percent);
                 }
             }
 
-            var result = await ProcessRunner.CaptureAsync(ffmpegPath, arguments, token, onStdErrLine: OnLine)
-                .ConfigureAwait(false);
+            ProcessResult result;
+            using (var poll = new Timer(_ =>
+            {
+                if (killedForStalling || !watch.HasStalled(DateTime.UtcNow)) return;
+                killedForStalling = true;
+                try { stalled.Cancel(); } catch { }
+            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10)))
+            {
+                try
+                {
+                    result = await ProcessRunner.CaptureAsync(
+                        ffmpegPath, arguments, stalled.Token, onStdErrLine: OnLine).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (killedForStalling && !token.IsCancellationRequested)
+                {
+                    throw new MergeFailedException(StalledMessage(watch), DescribeCommand(ffmpegPath, arguments));
+                }
+            }
 
             if (result.ExitCode != 0)
             {
                 throw new MergeFailedException(
                     Localizer.Get("FfmpegCouldNotProcess", Language),
-                    result.StdErr);
+                    DescribeCommand(ffmpegPath, arguments) + "\n\n" + result.StdErr);
             }
         }
+
+        private string StalledMessage(StallWatch watch)
+        {
+            string minutes = ((int)FfmpegStallLimit.TotalMinutes).ToString(CultureInfo.InvariantCulture);
+
+            if (watch.Position is not { } position)
+            {
+                return Localizer.GetDynamic("FfmpegStalledAtStart", Language, minutes);
+            }
+
+            var at = TimeSpan.FromSeconds(position);
+            return Localizer.GetDynamic("FfmpegStalled", Language, at.ToString(@"hh\:mm\:ss"), minutes);
+        }
+
+        /// The tool and its arguments, for the log. Which build of ffmpeg ran
+        /// matters too: it comes from BtbN's "latest" tag, so the exact binary
+        /// that hung is not available afterwards.
+        private static string DescribeCommand(string ffmpegPath, IEnumerable<string> arguments) =>
+            "$ " + ffmpegPath + " " + string.Join(" ",
+                arguments.Select(a => a.Contains(' ') ? "\"" + a + "\"" : a));
 
         private static void TryDelete(string path)
         {

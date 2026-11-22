@@ -108,6 +108,8 @@ namespace Mp4Merger.Core
             { "FrameRateDiffers", "ファイルごとにフレームレートが違います:" },
             { "MergedFileFailedVerification", "結合したファイルの検証に失敗しました。" },
             { "FfmpegCouldNotProcess", "FFmpegでファイルを処理できませんでした。" },
+            { "FfmpegStalled", "FFmpegが応答しなくなりました（動画の {0} の位置から {1} 分間、まったく進みませんでした）。\n処理を中止しました。" },
+            { "FfmpegStalledAtStart", "FFmpegが応答しなくなりました（開始から {0} 分間、まったく進みませんでした）。\n処理を中止しました。" },
             { "SeeLogForDetails", "詳しくは「ログを表示」で確認できます。" },
             { "ShowLog", "ログを表示" },
 
@@ -248,6 +250,8 @@ namespace Mp4Merger.Core
             { "FrameRateDiffers", "The frame rate differs between files:" },
             { "MergedFileFailedVerification", "The merged file failed verification." },
             { "FfmpegCouldNotProcess", "FFmpeg could not process the files." },
+            { "FfmpegStalled", "FFmpeg stopped responding: nothing moved for {1} minutes from {0} into the video.\nThe run was stopped." },
+            { "FfmpegStalledAtStart", "FFmpeg stopped responding: nothing moved for {0} minutes after it started.\nThe run was stopped." },
             { "SeeLogForDetails", "See \"Show Log\" for details." },
             { "ShowLog", "Show Log" },
 
