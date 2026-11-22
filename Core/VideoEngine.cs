@@ -288,7 +288,7 @@ namespace Mp4Merger.Core
                 throw new MergeFailedException(
                     Localizer.GetDynamic("ToolTimedOut", Language, timeout.Tool,
                         ((int)timeout.Limit.TotalSeconds).ToString(CultureInfo.InvariantCulture)),
-                    timeout.Message);
+                    WithBuild(timeout.Message));
             }
             finally
             {
@@ -307,9 +307,14 @@ namespace Mp4Merger.Core
 
         private const string BuildTag = "ffmpeg: ";
 
+        /// The build to name in a log. The banner read at startup, or what the
+        /// last download wrote down, or an honest admission -- never a guess.
+        private string BuildForLog =>
+            _ffmpegBuild ?? FfmpegVersion.Recorded() ?? "(version unknown)";
+
         /// Puts the build at the top of a log that does not already name it.
         private string WithBuild(string log) =>
-            BuildTag + (_ffmpegBuild ?? "(version unknown)") + "\n\n" + log;
+            BuildTag + BuildForLog + "\n\n" + log;
 
         private string DetailedLog(string log, MergeCompatibility.Report? report)
         {
@@ -1288,7 +1293,7 @@ namespace Mp4Merger.Core
         /// matters too: it comes from BtbN's "latest" tag, so the exact binary
         /// that hung is not available afterwards.
         private string DescribeCommand(string ffmpegPath, IEnumerable<string> arguments) =>
-            BuildTag + (_ffmpegBuild ?? "(version unknown)") + "\n"
+            BuildTag + BuildForLog + "\n"
             + "command: " + ffmpegPath + " " + string.Join(" ",
                 arguments.Select(a => a.Contains(' ') ? "\"" + a + "\"" : a));
 

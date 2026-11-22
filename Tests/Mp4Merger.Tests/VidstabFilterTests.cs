@@ -66,6 +66,32 @@ public class VidstabFilterTests
         Assert.Throws<ArgumentException>(() => VidstabFilters.Detect(name!, 5, 15));
     }
 
+    [Theory]
+    [InlineData("a b.trf")]
+    [InlineData("tab	here.trf")]
+    [InlineData("curly{1}.trf")]
+    [InlineData("at@sign.trf")]
+    [InlineData("paren(1).trf")]
+    public void RefusesAnythingItDoesNotRecognise(string name)
+    {
+        // The guard says what is allowed rather than what is not: the list of
+        // characters ffmpeg's filter syntax treats as punctuation is long, and a
+        // deny-list only has to miss one. A space was missed by the first one.
+        Assert.Throws<ArgumentException>(() => VidstabFilters.Detect(name, 5, 15));
+        Assert.Throws<ArgumentException>(() => VidstabFilters.Transform(name, 30));
+    }
+
+    [Theory]
+    [InlineData("transform.trf")]
+    [InlineData("transform_1a2b3c.trf")]
+    [InlineData("transform-1.TRF")]
+    [InlineData("t.trf")]
+    public void AcceptsLettersDigitsDotUnderscoreAndHyphen(string name)
+    {
+        Assert.Contains(name, VidstabFilters.Detect(name, 5, 15));
+        Assert.Contains(name, VidstabFilters.Transform(name, 30));
+    }
+
     [Fact]
     public void AcceptsAnOrdinaryGeneratedName()
     {

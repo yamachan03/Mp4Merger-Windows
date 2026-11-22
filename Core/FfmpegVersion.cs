@@ -35,6 +35,27 @@ namespace Mp4Merger.Core
             return null;
         }
 
+        /// The build recorded when ffmpeg was last downloaded, read back from
+        /// `ffmpeg_version.txt`. A fallback for when the banner could not be
+        /// read: the encoder-detection run may have timed out, ffmpeg may not
+        /// have started, or someone may have added -hide_banner to it. Null when
+        /// the file is not there -- it is only written by a download, so a user
+        /// who installed ffmpeg before this existed has nothing here until the
+        /// next update.
+        public static string? Recorded()
+        {
+            try
+            {
+                string path = System.IO.Path.Combine(AppPaths.DataDir, "ffmpeg_version.txt");
+                if (!System.IO.File.Exists(path)) return null;
+                return BuildOf(System.IO.File.ReadAllText(path));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         /// Just the build's own name, e.g. "N-129166-gae9f4540cb-20261121" or
         /// "8.0.1-essentials_build-www.gyan.dev". Null when it cannot be read.
         public static string? BuildOf(string? output)

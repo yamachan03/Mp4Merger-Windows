@@ -10,9 +10,16 @@ namespace Mp4Merger.Core
     /// the run dies with "No option name near '/Users/...'". Measured 2026-11-22
     /// against ffmpeg 8.0.1 and N-129166, identically on both:
     ///
-    ///     result=C:/x      failed      result=C\:/x    worked
-    ///     result=C\:/x     failed      result=C\\:/x   worked
-    ///     result='C:/x'    failed      result=C\\:/x  failed
+    ///     result=C:/x          failed
+    ///     result=C\\:/x         failed   (what the app used to send)
+    ///     result=C\\\\:/x        worked
+    ///     result=C\\\\\\:/x       worked
+    ///     result=C\\\\\\\\:/x      failed
+    ///     result='C:/x'        failed
+    ///     bare name + cwd      worked
+    ///
+    /// (The counts above are C# escapes: one backslash in the file is written
+    /// \\ here. So "what the app used to send" was a single backslash.)
     ///
     /// So it was never a change in ffmpeg: the one backslash the app used had
     /// always been wrong. Two would work, but the user's temp folder can also
@@ -36,9 +43,14 @@ namespace Mp4Merger.Core
             return $"vidstabtransform=input={transformFileName}:smoothing={smoothing}:crop=black:optzoom=1";
         }
 
-        /// Refuses anything that is not a plain file name. The whole point is
-        /// that ffmpeg's working directory carries the location, so a path
-        /// arriving here means someone has undone the fix.
+        /// Refuses anything that is not a plain, plainly-spelled file name. The
+        /// whole point is that ffmpeg's working directory carries the location,
+        /// so a path arriving here means someone has undone the fix.
+        ///
+        /// This says what is allowed rather than what is not. The list of
+        /// characters ffmpeg's filter syntax treats as punctuation is longer than
+        /// it looks -- ':' ',' ';' '=' '[' ']' quotes and the escape itself -- and
+        /// a deny-list only has to miss one to let a broken name through.
         private static void EnsureBareName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -46,13 +58,23 @@ namespace Mp4Merger.Core
                 throw new ArgumentException("The transform file needs a name.", nameof(name));
             }
 
-            foreach (char c in new[] { ':', '\\', '/', ',', ';', '=', '\'', '[', ']', '\"' })
+            if (System.IO.Path.GetFileName(name) != name)
             {
-                if (name.IndexOf(c) >= 0)
+                throw new ArgumentException(
+                    $"'{name}' is a path, not a file name. ffmpeg's filter parser reads " +
+                    "a drive letter's colon as punctuation; run ffmpeg in the folder instead.",
+                    nameof(name));
+            }
+
+            foreach (char c in name)
+            {
+                bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                               || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+                if (!allowed)
                 {
                     throw new ArgumentException(
-                        $"'{name}' is not a bare file name: ffmpeg's filter parser would " +
-                        $"read '{c}' as punctuation. Run ffmpeg in the folder instead.",
+                        $"'{name}' is not safe inside a filter string: '{c}' is not one of " +
+                        "the letters, digits, dot, underscore or hyphen that are allowed here.",
                         nameof(name));
                 }
             }
