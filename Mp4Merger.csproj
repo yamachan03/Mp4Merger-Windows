@@ -15,6 +15,12 @@
          DllNotFoundException as soon as a window is subclassed. The installer
          ships only the exe, so the exe has to carry them. -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- The exe otherwise carries the full path of the .pdb on the machine that
+         built it, which publishes a stranger's folder layout to anyone who
+         downloads it. Mapping the build root away keeps the line numbers in a
+         crash report, which dropping the symbols entirely would lose. -->
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+    <DebugType>portable</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
