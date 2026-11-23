@@ -29,9 +29,9 @@ public class VidstabFilterTests
     }
 
     [Theory]
-    [InlineData(@"C:/Users/yy200/AppData/Local/Temp/t.trf")]
-    [InlineData(@"C:\Users\yy200\t.trf")]
-    [InlineData(@"C\:/Users/yy200/t.trf")]
+    [InlineData(@"C:/Users/example/AppData/Local/Temp/t.trf")]
+    [InlineData(@"C:\Users\example\t.trf")]
+    [InlineData(@"C\:/Users/example/t.trf")]
     [InlineData("sub/t.trf")]
     [InlineData(@"sub\t.trf")]
     public void RefusesAPath(string path)

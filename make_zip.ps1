@@ -1,4 +1,4 @@
-# Builds the zip that goes on GitHub Releases.
+﻿# Builds the zip that goes on GitHub Releases.
 #
 # The zip holds one file: Mp4Merger.exe. Everything else in ReleaseBuild is
 # either forbidden or pointless to ship:

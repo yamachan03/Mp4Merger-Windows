@@ -131,8 +131,8 @@ namespace Mp4Merger
                 if (Core.DependencyManager.IsAiMissing())
                 {
                     string aiPrompt = Config.Language == "ja" 
-                        ? "AI超解像度機能（Real-ESRGAN）を使用しますか？\n今すぐダウンロードを開始する場合は「はい」を押してください（約400MB）。\n\n※「いいえ」を選んだ場合、AI超解像度機能は無効になりますが、等倍マージ機能などアプリ自体は利用可能です。"
-                        : "Do you want to use the AI Upscaler (Real-ESRGAN)?\nClick 'Yes' to start the download (approx. 400MB).\n\nIf you select 'No', the AI Upscaler will be disabled but the app itself will still function.";
+                        ? "AI超解像度機能（Real-ESRGAN）を使用しますか？\n今すぐダウンロードを開始する場合は「はい」を押してください（約45MB）。\n\n※「いいえ」を選んだ場合、AI超解像度機能は無効になりますが、等倍マージ機能などアプリ自体は利用可能です。"
+                        : "Do you want to use the AI Upscaler (Real-ESRGAN)?\nClick 'Yes' to start the download (approx. 45MB).\n\nIf you select 'No', the AI Upscaler will be disabled but the app itself will still function.";
                     string aiTitle = Config.Language == "ja" ? "追加コンポーネントの確認" : "Additional Component Check";
                     var result = MessageBox.Show(aiPrompt, aiTitle, MessageBoxButton.YesNo, MessageBoxImage.Question);
                         
@@ -337,8 +337,8 @@ namespace Mp4Merger
 
             ResOptAi4x.Content = (lang == "ja") ? "AI超解像 x4（細部を残す）" : "AI Upscale x4 (Keep Detail)";
             ResOptAi4x.ToolTip = (lang == "ja")
-                ? "写真のような実写向け。肌や木の葉の細かさを残します。"
-                : "For photographic footage: keeps fine texture such as skin and foliage.";
+                ? "肌や木の葉など、細かい質感を残します。"
+                : "Keeps fine texture such as skin and foliage.";
 
             ResOptAiAnime.Content = (lang == "ja") ? "AI超解像 x4（なめらか）" : "AI Upscale x4 (Smooth)";
             ResOptAiAnime.ToolTip = (lang == "ja")

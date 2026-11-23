@@ -17,7 +17,7 @@
 ## zip を作る
 
 ```powershell
-.uild_exe.bat      # 先に ReleaseBuild を作り直す
+.\build_exe.bat      # 先に ReleaseBuild を作り直す
 .\make_zip.ps1       # dist\Mp4Merger-<版>-win-x64.zip ができる
 ```
 
