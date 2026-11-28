@@ -225,6 +225,40 @@ namespace Mp4Merger.Core
             return (scaledWidth, toHeight);
         }
 
+        /// Canvas size that every re-encoded merge segment must share before
+        /// `-f concat -c copy`, or null when every segment already lands on the
+        /// same dimensions without padding.
+        ///
+        /// Without this, joining clips with different aspect ratios (e.g. 16:9
+        /// and 9:16) at 1080p produces 1920x1080 and 608x1080 via `scale=-2:1080`,
+        /// breaking the concat demuxer.
+        public static (int Width, int Height)? MergeCanvasSize(
+            IReadOnlyList<MediaProbe?> probes,
+            VideoFormat? videoTarget,
+            int? targetHeight)
+        {
+            var videos = probes.Where(p => p?.Video is { Width: > 0, Height: > 0 })
+                               .Select(p => p!.Video!)
+                               .ToList();
+            if (videos.Count < 2) return null;
+
+            VideoFormat reference = (videoTarget is { Width: > 0, Height: > 0 }) ? videoTarget : videos[0];
+
+            if (targetHeight is { } height)
+            {
+                var distinctSizes = videos
+                    .Select(v => ScaledSize(v.Width, v.Height, height))
+                    .Distinct()
+                    .ToList();
+                if (distinctSizes.Count <= 1) return null;
+                var canvas = ScaledSize(reference.Width, reference.Height, height);
+                return canvas.Width > 0 && canvas.Height > 0 ? canvas : null;
+            }
+
+            bool resolutionsDiffer = videos.Select(v => (v.Width, v.Height)).Distinct().Count() > 1;
+            return resolutionsDiffer ? (reference.Width, reference.Height) : null;
+        }
+
         /// Timescale for re-encoded output that represents every input's frame
         /// timing exactly, so keeping the source frame rate loses nothing to
         /// rounding. 90 kHz is always included: it suits common rates and is what

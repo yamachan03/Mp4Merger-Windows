@@ -128,7 +128,7 @@ namespace Mp4Merger.Core
         public static int Concurrency => Math.Clamp(Environment.ProcessorCount / 4, 1, 4);
 
         public static readonly HashSet<string> VideoExtensions =
-            new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mov", ".m4v" };
+            new(VideoFormats.Extensions, StringComparer.OrdinalIgnoreCase);
 
         // MARK: - Discovery
 
@@ -140,7 +140,7 @@ namespace Mp4Merger.Core
 
             void Append(string path)
             {
-                if (!VideoExtensions.Contains(Path.GetExtension(path))) return;
+                if (!VideoFormats.IsSupported(path)) return;
                 string full;
                 try { full = Path.GetFullPath(path); } catch { return; }
                 if (!seen.Add(full)) return;

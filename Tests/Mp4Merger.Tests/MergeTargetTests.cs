@@ -107,4 +107,45 @@ public class MergeTargetTests
         Assert.Equal(1080, target.Height);
         Assert.Equal("30/1", target.FrameRate);
     }
+
+    [Fact]
+    public void MergeCanvasSizePadsMixedAspectRatiosWhenScalingToTargetHeight()
+    {
+        var wide = TestProbes.Probe("wide.mp4", width: 1920, height: 1080);
+        var tall = TestProbes.Probe("tall.mp4", width: 1080, height: 1920);
+        var report = MergeCompatibility.Analyze(new[] { wide, tall });
+
+        Assert.Equal((1920, 1080),
+            MergeCompatibility.MergeCanvasSize(new MediaProbe?[] { wide, tall }, report.VideoTarget, 1080));
+        Assert.Equal((3840, 2160),
+            MergeCompatibility.MergeCanvasSize(new MediaProbe?[] { wide, tall }, report.VideoTarget, 2160));
+    }
+
+    [Fact]
+    public void MergeCanvasSizeReturnsNullWhenAllClipsScaleToTheSameDimensions()
+    {
+        var fhd = TestProbes.Probe("a.mp4", width: 1920, height: 1080);
+        var hd = TestProbes.Probe("b.mp4", width: 1280, height: 720);
+        var report = MergeCompatibility.Analyze(new[] { fhd, hd });
+
+        Assert.Null(
+            MergeCompatibility.MergeCanvasSize(new MediaProbe?[] { fhd, hd }, report.VideoTarget, 1080));
+        // Without a target height they still differ in size, so original-size merge pads to the target.
+        Assert.Equal((1920, 1080),
+            MergeCompatibility.MergeCanvasSize(new MediaProbe?[] { fhd, hd }, report.VideoTarget, null));
+    }
+
+    [Theory]
+    [InlineData("h264_nvenc", false, 2)]
+    [InlineData("hevc_nvenc", false, 2)]
+    [InlineData("h264_qsv", false, 2)]
+    [InlineData("h264_amf", false, 2)]
+    [InlineData("libx264", false, 1)]
+    [InlineData("libx265", false, 1)]
+    [InlineData("h264_nvenc", true, 1)]
+    [InlineData("", false, 1)]
+    public void PicksParallelWorkersOnlyForNonAiHardwareEncoders(string encoder, bool aiUpscale, int expected)
+    {
+        Assert.Equal(expected, VideoEngine.EncodeConcurrencyFor(encoder, aiUpscale));
+    }
 }

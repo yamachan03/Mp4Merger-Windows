@@ -16,7 +16,9 @@ namespace Mp4Merger.Core
         private static readonly string RealEsrganUrl = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip";
 
         private static readonly string FfmpegApiUrl = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest";
-        private static readonly string RealEsrganApiUrl = "https://api.github.com/repos/xinntao/Real-ESRGAN/releases/latest";
+        // Matches the pinned release in RealEsrganUrl so an upstream release does
+        // not trigger endless update prompts that re-download v0.2.5.0.
+        private static readonly string RealEsrganApiUrl = "https://api.github.com/repos/xinntao/Real-ESRGAN/releases/tags/v0.2.5.0";
 
         // RealEsrganUrl points at an immutable 2022 asset that predates GitHub's per-asset
         // digests (the API returns null for it), so verification uses this pinned SHA-256
@@ -25,7 +27,8 @@ namespace Mp4Merger.Core
 
         public static bool IsFfmpegMissing()
         {
-            return !File.Exists(AppPaths.ResolveTool("ffmpeg"));
+            return !File.Exists(AppPaths.ResolveTool("ffmpeg"))
+                || !File.Exists(AppPaths.ResolveTool("ffprobe"));
         }
 
         public static bool IsAiMissing()
@@ -72,42 +75,44 @@ namespace Mp4Merger.Core
             return null;
         }
 
-        private static async Task<string> GetLatestDateAsync(HttpClient client, string apiUrl)
-        {
-            try {
-                var response = await client.GetStringAsync(apiUrl);
-                using var doc = JsonDocument.Parse(response);
-                return doc.RootElement.GetProperty("published_at").GetString() ?? "";
-            } catch { return ""; }
-        }
-
-        // Reads the "digest" (sha256:<hex>) the GitHub Releases API publishes per asset.
-        // Returns null when unavailable (older releases have no digest).
-        private static async Task<string?> GetAssetSha256Async(HttpClient client, string apiUrl, string assetFileName)
+        private static async Task<(string PublishedAt, string? AssetSha256)> GetReleaseInfoAsync(
+            HttpClient client, string apiUrl, string? assetFileName)
         {
             try
             {
                 var response = await client.GetStringAsync(apiUrl);
                 using var doc = JsonDocument.Parse(response);
-                if (!doc.RootElement.TryGetProperty("assets", out var assets)) return null;
+                string publishedAt = doc.RootElement.TryGetProperty("published_at", out var pub)
+                    ? pub.GetString() ?? ""
+                    : "";
 
-                foreach (var asset in assets.EnumerateArray())
+                string? sha256 = null;
+                if (!string.IsNullOrEmpty(assetFileName) &&
+                    doc.RootElement.TryGetProperty("assets", out var assets))
                 {
-                    if (asset.TryGetProperty("name", out var nameVal) &&
-                        string.Equals(nameVal.GetString(), assetFileName, StringComparison.OrdinalIgnoreCase) &&
-                        asset.TryGetProperty("digest", out var digestVal) &&
-                        digestVal.ValueKind == JsonValueKind.String)
+                    foreach (var asset in assets.EnumerateArray())
                     {
-                        string digest = digestVal.GetString() ?? "";
-                        if (digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                        if (asset.TryGetProperty("name", out var nameVal) &&
+                            string.Equals(nameVal.GetString(), assetFileName, StringComparison.OrdinalIgnoreCase) &&
+                            asset.TryGetProperty("digest", out var digestVal) &&
+                            digestVal.ValueKind == JsonValueKind.String)
                         {
-                            return digest.Substring("sha256:".Length);
+                            string digest = digestVal.GetString() ?? "";
+                            if (digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                sha256 = digest.Substring("sha256:".Length);
+                                break;
+                            }
                         }
                     }
                 }
+
+                return (publishedAt, sha256);
             }
-            catch { }
-            return null;
+            catch
+            {
+                return ("", null);
+            }
         }
 
         private static async Task VerifySha256Async(string filePath, string? expectedSha256)
@@ -133,8 +138,8 @@ namespace Mp4Merger.Core
             using HttpClient apiClient = CreateClient(TimeSpan.FromSeconds(30));
             using HttpClient dlClient = CreateClient(TimeSpan.FromMinutes(30));
 
-            string latestDate = await GetLatestDateAsync(apiClient, FfmpegApiUrl);
-            string? expectedHash = await GetAssetSha256Async(apiClient, FfmpegApiUrl, Path.GetFileName(new Uri(FfmpegUrl).LocalPath));
+            var (latestDate, expectedHash) = await GetReleaseInfoAsync(
+                apiClient, FfmpegApiUrl, Path.GetFileName(new Uri(FfmpegUrl).LocalPath));
 
             reportProgress(0, "Downloading FFmpeg...");
             string zipPath = Path.Combine(Path.GetTempPath(), "ffmpeg_download.zip");
@@ -168,7 +173,7 @@ namespace Mp4Merger.Core
             using HttpClient apiClient = CreateClient(TimeSpan.FromSeconds(30));
             using HttpClient dlClient = CreateClient(TimeSpan.FromMinutes(30));
 
-            string latestDate = await GetLatestDateAsync(apiClient, RealEsrganApiUrl);
+            var (latestDate, _) = await GetReleaseInfoAsync(apiClient, RealEsrganApiUrl, null);
 
             reportProgress(50, "Downloading AI Upscaler...");
             string zipPath = Path.Combine(Path.GetTempPath(), "realesrgan_download.zip");

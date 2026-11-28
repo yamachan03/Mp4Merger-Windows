@@ -167,4 +167,15 @@ public class StallGuardTests
         Assert.Equal(TimeSpan.FromSeconds(10), StallGuard.CheckEvery);
         Assert.Equal(18, (int)(StallGuard.Limit / StallGuard.CheckEvery));
     }
+
+    [Theory]
+    [InlineData(0, "00:00:00")]
+    [InlineData(42, "00:00:42")]
+    [InlineData(3661, "01:01:01")]
+    [InlineData(90061, "25:01:01")]
+    [InlineData(-5, "00:00:00")]
+    public void FormatsStallPositionsWithoutThrowing(double seconds, string expected)
+    {
+        Assert.Equal(expected, StallGuard.FormatPosition(seconds));
+    }
 }

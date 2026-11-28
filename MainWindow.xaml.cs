@@ -207,7 +207,7 @@ namespace Mp4Merger
             }
             finally
             {
-                MergeBtn.IsEnabled = true;
+                MergeBtn.IsEnabled = !Core.DependencyManager.IsFfmpegMissing();
                 ProgressBar.Value = 0;
             }
         }
@@ -223,9 +223,15 @@ namespace Mp4Merger
             DeepCheckCheck.IsChecked = Config.DeepCheck;
             MergeOutputCheck.IsChecked = Config.MergeOutput;
 
-            if (Config.Resolution == "1080p") ResolutionCombo.SelectedIndex = 1;
-            else if (Config.Resolution == "4K") ResolutionCombo.SelectedIndex = 2;
-            else ResolutionCombo.SelectedIndex = 0;
+            ResolutionCombo.SelectedIndex = Config.Resolution switch
+            {
+                "1080p" => 1,
+                "4K" => 2,
+                "AI_1x" => 3,
+                "AI_4x" => 4,
+                "AI_Anime" => 5,
+                _ => 0
+            };
         }
 
         private void SaveOptionsToConfig()
@@ -240,9 +246,15 @@ namespace Mp4Merger
             Config.DeepCheck = DeepCheckCheck.IsChecked == true;
             Config.MergeOutput = MergeOutputCheck.IsChecked == true;
 
-            if (ResolutionCombo.SelectedIndex == 1) Config.Resolution = "1080p";
-            else if (ResolutionCombo.SelectedIndex == 2) Config.Resolution = "4K";
-            else Config.Resolution = "Original";
+            Config.Resolution = ResolutionCombo.SelectedIndex switch
+            {
+                1 => "1080p",
+                2 => "4K",
+                3 => "AI_1x",
+                4 => "AI_4x",
+                5 => "AI_Anime",
+                _ => "Original"
+            };
 
             Config.Save();
         }
@@ -457,40 +469,49 @@ namespace Mp4Merger
 
         private async void Border_Drop(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            try
             {
-                string[]? files = e.Data.GetData(DataFormats.FileDrop) as string[];
-                if (files != null)
+                if (e.Data.GetDataPresent(DataFormats.FileDrop))
                 {
-                    string ffprobePath = ResolveToolPath("ffprobe");
-
-                    foreach (string file in files)
+                    string[]? files = e.Data.GetData(DataFormats.FileDrop) as string[];
+                    if (files != null)
                     {
-                        // What counts as footage lives in one place, because the
-                        // open dialog in the check window has to agree with it.
-                        if (VideoFormats.IsSupported(file))
-                        {
-                            var placeholderItem = new VideoItem
-                            {
-                                Name = Path.GetFileName(file),
-                                Path = file,
-                                Info = "...",
-                                DurationStr = "...",
-                                TagsStr = "..."
-                            };
-                            VideoFiles.Add(placeholderItem);
+                        string ffprobePath = ResolveToolPath("ffprobe");
 
-                            // Load details asynchronously
-                            var index = VideoFiles.IndexOf(placeholderItem);
-                            var details = await Task.Run(() => VideoItem.GetVideoDetailsAsync(file, ffprobePath));
-                            if (index >= 0 && index < VideoFiles.Count)
+                        foreach (string file in files)
+                        {
+                            // What counts as footage lives in one place, because the
+                            // open dialog in the check window has to agree with it.
+                            if (VideoFormats.IsSupported(file))
                             {
-                                VideoFiles[index] = details;
+                                var placeholderItem = new VideoItem
+                                {
+                                    Name = Path.GetFileName(file),
+                                    Path = file,
+                                    Info = "...",
+                                    DurationStr = "...",
+                                    TagsStr = "..."
+                                };
+                                VideoFiles.Add(placeholderItem);
+
+                                // Load details asynchronously and look up the placeholder
+                                // again afterward so sorting/clearing/deleting mid-drop
+                                // never overwrites a different row.
+                                var details = await Task.Run(() => VideoItem.GetVideoDetailsAsync(file, ffprobePath));
+                                int index = VideoFiles.IndexOf(placeholderItem);
+                                if (index >= 0)
+                                {
+                                    VideoFiles[index] = details;
+                                }
                             }
                         }
+                        UpdateOutputFilename();
                     }
-                    UpdateOutputFilename();
                 }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Error dropping files: " + ex.Message);
             }
         }
 
@@ -662,6 +683,7 @@ namespace Mp4Merger
             }
 
             MergeBtn.IsEnabled = false;
+            CancelBtn.IsEnabled = true;
             CancelBtn.Visibility = Visibility.Visible;
             ProgressBar.Value = 0;
             _processingCts = new CancellationTokenSource();
@@ -758,7 +780,8 @@ namespace Mp4Merger
 
                 StatusText.Text = Localizer.Get("Ready", Config.Language);
                 ProgressBar.Value = 100;
-                MessageBox.Show(string.Format(Localizer.Get("MergeCompleted", Config.Language), outputFile));
+                string completedTarget = mergeOutput ? outputFile : outputDir;
+                MessageBox.Show(string.Format(Localizer.Get("MergeCompleted", Config.Language), completedTarget));
             }
             catch (OperationCanceledException)
             {
@@ -780,6 +803,7 @@ namespace Mp4Merger
                 _processingCts?.Dispose();
                 _processingCts = null;
                 MergeBtn.IsEnabled = true;
+                CancelBtn.IsEnabled = true;
                 CancelBtn.Visibility = Visibility.Collapsed;
                 ProgressBar.Value = 0;
             }

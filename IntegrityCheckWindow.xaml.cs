@@ -204,6 +204,11 @@ namespace Mp4Merger
 
         private void RevealProblems_Click(object sender, RoutedEventArgs e) => Reveal(_model.ProblemPaths);
 
+        private void RevealOneItem_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem item) item.Header = Localizer.Get("RevealInExplorer", _lang);
+        }
+
         private void RevealOne_Click(object sender, RoutedEventArgs e)
         {
             if (sender is MenuItem { CommandParameter: string path }) Reveal(new List<string> { path });

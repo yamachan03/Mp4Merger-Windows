@@ -30,10 +30,9 @@ The exe is not code-signed, so Windows SmartScreen warns on first launch; choose
 ## 🚀 How to Use
 
 1. **Add Videos:** Drag and drop your video files into the central area (MP4, MOV, M4V, MPG, MTS, M2TS, TS, AVI, MKV, WMV, WEBM and more). Use **[Sort by Name]** to organize them or **[Clear All]** to reset the list.
-2. **Configure Options:** In the **Options** panel (bottom-right):
-   * Select your **Encoder** (Auto detects your GPU, or force CPU/NVIDIA/Intel/AMD).
-   * Check **Normalize Audio** to balance sound, or **Fix Jitter** to stabilize frame sync.
-   * Choose your desired **Resolution** (Standard or AI-Enhanced).
+2. **Configure Options:** In the **Options** panel:
+   * Check **Normalize Audio** to balance sound, **Fix Jitter** to reduce playback stutter, **Gimbal Stabilize** for handheld shake, or **HEVC** for smaller files (GPU hardware encoding is detected automatically).
+   * Choose your desired **Resolution** (Original, 1080p, 4K, or AI-Enhanced).
 3. **Merge:** Enter a name in the **Output Filename** field and click the blue **[Merge Files]** button.
 
 ---
@@ -102,10 +101,9 @@ MP4 Mergerは、Windowsユーザーのために新しく設計された直感的
 ## 🚀 使い方
 
 1. **動画を読み込む:** 中央のエリアに動画をドラッグ＆ドロップします（MP4・MOV・M4V・MPG・MTS・M2TS・TS・AVI・MKV・WMV・WEBM など）。 **[Sort by Name]** で名前順に整列させたり、**[Clear All]** でリストをリセットできます。
-2. **オプションを選択:** 右下の **Options** パネルで設定を行います。
-   * **Encoder:** 使うグラフィックボードを選択します（通常はAutoのままでOKです）。
-   * 音量を揃えるなら **Normalize Audio**、動きのガタつきを抑えるなら **Fix Jitter** にチェックを入れます。
-   * 希望の出力サイズやAI補正を **Resolution** から選びます。
+2. **オプションを選択:** **オプション** パネルで設定を行います。
+   * 音量を揃えるなら **音量ノーマライズ**、カクつきを抑えるなら **ジッター修正**、手持ち揺れには **ジンバル揺れ補正**、サイズを抑えるなら **HEVC** にチェックを入れます（GPU ハードウェアエンコードは自動判別されます）。
+   * 希望の出力サイズやAI補正を **解像度** から選びます。
 3. **実行:** **Output Filename** にファイル名を入力し、青い **[Merge Files]** ボタンを押せば結合が始まります。
 
 ---

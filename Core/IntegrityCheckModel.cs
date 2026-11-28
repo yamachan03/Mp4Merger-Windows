@@ -39,7 +39,7 @@ namespace Mp4Merger.Core
                 return Localizer.GetDynamic("CheckStalledAtStart", Language, minutes);
             }
             return Localizer.GetDynamic("CheckStalled", Language,
-                TimeSpan.FromSeconds(position).ToString(@"hh\\:mm\\:ss"), minutes);
+                StallGuard.FormatPosition(position), minutes);
         }
 
         private List<string> _droppedPaths = new();

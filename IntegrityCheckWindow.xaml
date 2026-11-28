@@ -47,7 +47,7 @@
                                HorizontalAlignment="Center" Margin="0,0,0,6"/>
                     <TextBlock x:Name="DropPromptTxt" Text="チェックしたいファイルまたはフォルダをドロップ" FontSize="13"
                                FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="DropSubTxt" Text="ファイル単体でもチェックできます。フォルダの場合はMP4・MOVを探します。"
+                    <TextBlock x:Name="DropSubTxt" Text="ファイル単体でもチェックできます。フォルダの場合は動画ファイルを探します。"
                                FontSize="11" Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Center"
                                Margin="0,4,0,0" TextWrapping="Wrap" MaxWidth="440" TextAlignment="Center"/>
                 </StackPanel>
@@ -167,6 +167,7 @@
                                     <Grid.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem x:Name="RevealOneItem" Header="エクスプローラーで表示"
+                                                      Loaded="RevealOneItem_Loaded"
                                                       CommandParameter="{Binding Path}" Click="RevealOne_Click"/>
                                         </ContextMenu>
                                     </Grid.ContextMenu>

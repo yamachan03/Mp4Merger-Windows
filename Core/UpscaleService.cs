@@ -63,7 +63,8 @@ namespace Mp4Merger.Core
             string modelName,
             bool keepOriginalResolution,
             Action<double, string> reportProgress,
-            CancellationToken token)
+            CancellationToken token,
+            bool hevc = false)
         {
             var workDirectory = WorkDir.Create();
             string framesDir = Path.Combine(workDirectory.FullName, "frames");
@@ -148,7 +149,14 @@ namespace Mp4Merger.Core
                 {
                     args.AddRange(new[] { "-vf", $"scale={info.Width}:{info.Height}:flags=lanczos" });
                 }
-                args.AddRange(new[] { "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p" });
+                if (hevc)
+                {
+                    args.AddRange(new[] { "-c:v", "libx265", "-preset", "medium", "-crf", "20", "-tag:v", "hvc1", "-pix_fmt", "yuv420p" });
+                }
+                else
+                {
+                    args.AddRange(new[] { "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p" });
+                }
                 if (hasAudio) args.AddRange(new[] { "-c:a", "copy" });
                 args.AddRange(new[] { "-r", frameRate, "-y", tempOut });
 
@@ -160,8 +168,7 @@ namespace Mp4Merger.Core
                     }
                 }).ConfigureAwait(false);
 
-                if (File.Exists(outputVideo)) File.Delete(outputVideo);
-                File.Move(tempOut, outputVideo);
+                File.Move(tempOut, outputVideo, overwrite: true);
                 reportProgress(100, "Upscaling complete.");
             }
             finally

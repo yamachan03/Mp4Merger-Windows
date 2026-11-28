@@ -263,4 +263,37 @@ public class ProgressBandTests
         Assert.Equal(50, ProgressBand.ForFile(1, 4).End, 6);
         Assert.Equal(100, ProgressBand.Whole.End, 6);
     }
+
+    [Fact]
+    public void ParallelProgressCombinesConcurrentItemsMonotonically()
+    {
+        var progress = ParallelProgress.Equal(4);
+
+        Assert.Equal(12.5, progress.Report(0, 50), 6);
+        Assert.Equal(25.0, progress.Report(1, 50), 6);
+        // An out-of-order lower value for an item never pushes the bar backwards.
+        Assert.Equal(25.0, progress.Report(0, 10), 6);
+        Assert.Equal(37.5, progress.Report(0, 100), 6);
+        Assert.Equal(100.0, progress.Report(1, 100) * 0 + progress.Report(2, 100) * 0 + progress.Report(3, 100), 6);
+    }
+
+    [Fact]
+    public void ParallelProgressWeightsItemsByDuration()
+    {
+        // A 30s clip accounts for 75% of the work; a 10s clip accounts for 25%.
+        var progress = new ParallelProgress(new[] { 30.0, 10.0 });
+
+        Assert.Equal(75.0, progress.Report(0, 100), 6);
+        Assert.Equal(87.5, progress.Report(1, 50), 6);
+        Assert.Equal(100.0, progress.Report(1, 100), 6);
+    }
+
+    [Fact]
+    public void ParallelProgressFallsBackToUnitWeightForUnknownDurations()
+    {
+        var progress = new ParallelProgress(new[] { 0.0, -1.0 });
+
+        Assert.Equal(50.0, progress.Report(0, 100), 6);
+        Assert.Equal(100.0, progress.Report(1, 100), 6);
+    }
 }

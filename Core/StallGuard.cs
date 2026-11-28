@@ -58,6 +58,16 @@ namespace Mp4Merger.Core
         /// otherwise tell the user the wrong number.
         public TimeSpan Allowance => _allowance;
 
+        /// Formats a media position for user-facing stall messages. Kept in one
+        /// place so every caller uses the same valid TimeSpan escape sequence.
+        public static string FormatPosition(double positionSeconds)
+        {
+            var span = TimeSpan.FromSeconds(Math.Max(positionSeconds, 0));
+            return span.TotalHours >= 24
+                ? $"{(int)span.TotalHours:D2}:{span.Minutes:D2}:{span.Seconds:D2}"
+                : span.ToString(@"hh\:mm\:ss");
+        }
+
         /// Run the tool with this instead of the user's token.
         public CancellationToken Token => _source.Token;
 

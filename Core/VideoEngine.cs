@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -65,6 +66,83 @@ namespace Mp4Merger.Core
 
         private string H264Encoder => _detectedH264Encoder ?? "libx264";
         private string HevcEncoder => _detectedHevcEncoder ?? "libx265";
+
+        /// How many files/segments to encode at once.
+        ///
+        /// Measured 2026-11-28 on RTX 4090 + Intel UHD 770 (6 x 40s 1080p30):
+        ///   H.264: 1x nvenc 18.26s -> 2x nvenc 10.48s (1.74x); 2x nvenc + 1x qsv 10.65s (slower)
+        ///   HEVC:  1x nvenc 19.02s -> 2x nvenc 14.87s (1.28x); 1x qsv alone 62.89s (3.3x slower)
+        /// Two workers on the primary hardware encoder gives almost the entire gain
+        /// while keeping every clip on the same encoder (consistent quality and
+        /// concat-safe headers) and staying within every GPU's session limit.
+        /// Software encoders (libx264/libx265) already saturate all CPU cores and
+        /// AI upscaling saturates the GPU and disk on its own, so both stay serial.
+        public static int EncodeConcurrencyFor(string encoder, bool aiUpscale)
+        {
+            if (aiUpscale) return 1;
+            if (string.IsNullOrWhiteSpace(encoder)) return 1;
+            if (encoder.StartsWith("lib", StringComparison.OrdinalIgnoreCase)) return 1;
+            return 2;
+        }
+
+        /// Runs `work(0..count-1)` with up to `maxConcurrency` concurrent workers.
+        /// When any worker fails, the remaining workers are cancelled immediately
+        /// and the first non-cancellation exception is rethrown intact.
+        private static async Task RunIndexedAsync(
+            int count,
+            int maxConcurrency,
+            Func<int, CancellationToken, Task> work,
+            CancellationToken token)
+        {
+            if (count <= 0) return;
+            if (maxConcurrency <= 1 || count == 1)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    await work(i, token).ConfigureAwait(false);
+                }
+                return;
+            }
+
+            using var runCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            int next = -1;
+            Exception? firstError = null;
+            int workerCount = Math.Min(maxConcurrency, count);
+
+            async Task WorkerAsync()
+            {
+                while (true)
+                {
+                    int index = Interlocked.Increment(ref next);
+                    if (index >= count || runCts.IsCancellationRequested) return;
+                    try
+                    {
+                        await work(index, runCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (runCts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (Interlocked.CompareExchange(ref firstError, ex, null) == null)
+                        {
+                            try { runCts.Cancel(); } catch { }
+                        }
+                        return;
+                    }
+                }
+            }
+
+            await Task.WhenAll(Enumerable.Range(0, workerCount).Select(_ => WorkerAsync())).ConfigureAwait(false);
+
+            if (firstError != null)
+            {
+                ExceptionDispatchInfo.Capture(firstError).Throw();
+            }
+            token.ThrowIfCancellationRequested();
+        }
 
         // MARK: - Encoder detection
 
@@ -350,78 +428,138 @@ namespace Mp4Merger.Core
             string outputDir = Path.GetDirectoryName(outputFile) ?? Path.GetTempPath();
             var probes = await ProbeEachAsync(inputFiles, token).ConfigureAwait(false);
 
+            string suffix = SuffixFor(resolution, fixJitter, stabilize, hevc, normalize);
+            var outputFiles = new string[inputFiles.Count];
             for (int i = 0; i < inputFiles.Count; i++)
             {
-                token.ThrowIfCancellationRequested();
-                string file = inputFiles[i];
-                string baseName = Path.GetFileNameWithoutExtension(file);
-                string suffix = SuffixFor(resolution, fixJitter, stabilize, hevc, normalize);
-                string singleOutputFile = Path.Combine(outputDir, $"{baseName}{suffix}.mp4");
-                EnsureNotAnInput(singleOutputFile, inputFiles);
+                string baseName = Path.GetFileNameWithoutExtension(inputFiles[i]);
+                outputFiles[i] = Path.Combine(outputDir, $"{baseName}{suffix}.mp4");
+                EnsureNotAnInput(outputFiles[i], inputFiles);
+            }
 
-                double duration = probes[i]?.Duration ?? 0;
+            bool isAi = resolution.StartsWith("AI_", StringComparison.Ordinal);
+            bool duplicateOutputs = outputFiles.Distinct(StringComparer.OrdinalIgnoreCase).Count() < outputFiles.Length;
+            int concurrency = duplicateOutputs
+                ? 1
+                : EncodeConcurrencyFor(hevc ? HevcEncoder : H264Encoder, isAi);
 
-                // Each file owns an equal band of the overall bar. Stabilization,
-                // when it runs, takes the first half of that band, so the steps
-                // after it start where it left off: mapping them from the band's
-                // start instead would send the bar backwards mid-file.
-                var (stabilizeBand, convertBand) =
-                    ProgressBand.ForIndividualFile(i, inputFiles.Count, stabilize);
-
-                reportProgress(stabilizeBand.Start,
-                    Localizer.GetDynamic("ProcessingFileOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString()));
-
-                string source = file;
-                if (stabilize)
+            if (concurrency <= 1 || inputFiles.Count <= 1)
+            {
+                for (int i = 0; i < inputFiles.Count; i++)
                 {
-                    source = await StabilizeAsync(file, probes[i], duration, stabilizeSmoothing, hevc, context,
-                        i + 1, inputFiles.Count,
-                        (pct, msg) => reportProgress(stabilizeBand.At(pct), msg),
-                        token).ConfigureAwait(false);
-                    probes[i] = (await ProbeEachAsync(new[] { source }, token).ConfigureAwait(false))[0];
-                    duration = probes[i]?.Duration ?? duration;
-                }
+                    token.ThrowIfCancellationRequested();
+                    string file = inputFiles[i];
+                    string singleOutputFile = outputFiles[i];
+                    var probe = probes[i];
+                    double duration = probe?.Duration ?? 0;
 
-                if (resolution.StartsWith("AI_", StringComparison.Ordinal))
-                {
-                    // The filter pass is for yadif and loudnorm. With neither
-                    // asked for it is a plain re-encode, and re-encoding before
-                    // the upscaler only hands it a worse picture to work from:
-                    // measured 2026-11-22 at VMAF 93.41 where an untouched copy
-                    // scores 97.51, for no gain at all. So the upscaler gets the
-                    // file as it is, and the whole band, since there is no
-                    // filter pass to share it with.
-                    bool needsFilterPass = fixJitter || normalize;
-                    string upscaleInput = source;
-                    var upscaleBand = convertBand;
+                    // Each file owns an equal band of the overall bar. Stabilization,
+                    // when it runs, takes the first half of that band, so the steps
+                    // after it start where it left off: mapping them from the band's
+                    // start instead would send the bar backwards mid-file.
+                    var (stabilizeBand, convertBand) =
+                        ProgressBand.ForIndividualFile(i, inputFiles.Count, stabilize);
 
-                    if (needsFilterPass)
+                    reportProgress(stabilizeBand.Start,
+                        Localizer.GetDynamic("ProcessingFileOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString()));
+
+                    string source = file;
+                    if (stabilize)
                     {
-                        var (filterBand, rest) = convertBand.SplitForAiUpscale();
-                        upscaleBand = rest;
-
-                        string tempPre = context.Temp($"pretmp_{Guid.NewGuid():N}.mp4");
-                        await EncodeOneAsync(source, tempPre, "Original", probes[i], fixJitter, hevc, normalize,
-                            duration, null,
-                            pct => reportProgress(filterBand.At(pct),
-                                Localizer.GetDynamic("ProcessingFiltersOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
+                        source = await StabilizeAsync(file, probe, duration, stabilizeSmoothing, hevc, context,
+                            i + 1, inputFiles.Count,
+                            (pct, msg) => reportProgress(stabilizeBand.At(pct), msg),
                             token).ConfigureAwait(false);
-                        upscaleInput = tempPre;
+                        probe = (await ProbeEachAsync(new[] { source }, token).ConfigureAwait(false))[0];
+                        duration = probe?.Duration ?? duration;
                     }
 
-                    await RunAiUpscaleAsync(upscaleInput, singleOutputFile, resolution,
-                        pct => reportProgress(upscaleBand.At(pct),
-                            Localizer.GetDynamic("ProcessingAiOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
-                        token).ConfigureAwait(false);
+                    if (isAi)
+                    {
+                        // The filter pass is for yadif and loudnorm. With neither
+                        // asked for it is a plain re-encode, and re-encoding before
+                        // the upscaler only hands it a worse picture to work from:
+                        // measured 2026-11-22 at VMAF 93.41 where an untouched copy
+                        // scores 97.51, for no gain at all. So the upscaler gets the
+                        // file as it is, and the whole band, since there is no
+                        // filter pass to share it with.
+                        bool needsFilterPass = fixJitter || normalize;
+                        string upscaleInput = source;
+                        var upscaleBand = convertBand;
+
+                        if (needsFilterPass)
+                        {
+                            var (filterBand, rest) = convertBand.SplitForAiUpscale();
+                            upscaleBand = rest;
+
+                            string tempPre = context.Temp($"pretmp_{Guid.NewGuid():N}.mp4");
+                            // The pre-pass is an intermediate file immediately decoded to PNG
+                            // frames for Real-ESRGAN, so encoding it as HEVC only wastes time;
+                            // the user's HEVC choice applies to the final upscaled output.
+                            await EncodeOneAsync(source, tempPre, "Original", probe, fixJitter, hevc: false, normalize,
+                                duration, null,
+                                pct => reportProgress(filterBand.At(pct),
+                                    Localizer.GetDynamic("ProcessingFiltersOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
+                                token).ConfigureAwait(false);
+                            upscaleInput = tempPre;
+                        }
+
+                        await RunAiUpscaleAsync(upscaleInput, singleOutputFile, resolution, hevc,
+                            pct => reportProgress(upscaleBand.At(pct),
+                                Localizer.GetDynamic("ProcessingAiOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
+                            token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await EncodeOneAsync(source, singleOutputFile, resolution, probe, fixJitter, hevc, normalize,
+                            duration, null,
+                            pct => reportProgress(convertBand.At(pct),
+                                Localizer.GetDynamic("ProcessingFileOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
+                            token).ConfigureAwait(false);
+                    }
                 }
-                else
+            }
+            else
+            {
+                var parallelProgress = new ParallelProgress(probes.Select(p => p?.Duration ?? 1.0).ToList());
+                var (itemStabilizeBand, itemConvertBand) = ProgressBand.ForIndividualFile(0, 1, stabilize);
+                int completedCount = 0;
+
+                string ProgressLabel()
                 {
-                    await EncodeOneAsync(source, singleOutputFile, resolution, probes[i], fixJitter, hevc, normalize,
-                        duration, null,
-                        pct => reportProgress(convertBand.At(pct),
-                            Localizer.GetDynamic("ProcessingFileOfN", Language, (i + 1).ToString(), inputFiles.Count.ToString())),
-                        token).ConfigureAwait(false);
+                    int shown = Math.Min(Volatile.Read(ref completedCount) + 1, inputFiles.Count);
+                    return Localizer.GetDynamic("ProcessingFileOfN", Language,
+                        shown.ToString(), inputFiles.Count.ToString());
                 }
+
+                reportProgress(0, ProgressLabel());
+
+                await RunIndexedAsync(inputFiles.Count, concurrency, async (i, ct) =>
+                {
+                    string file = inputFiles[i];
+                    string singleOutputFile = outputFiles[i];
+                    var probe = probes[i];
+                    double duration = probe?.Duration ?? 0;
+
+                    string source = file;
+                    if (stabilize)
+                    {
+                        source = await StabilizeAsync(file, probe, duration, stabilizeSmoothing, hevc, context,
+                            i + 1, inputFiles.Count,
+                            (pct, msg) => reportProgress(parallelProgress.Report(i, itemStabilizeBand.At(pct)), msg),
+                            ct).ConfigureAwait(false);
+                        probe = (await ProbeEachAsync(new[] { source }, ct).ConfigureAwait(false))[0];
+                        duration = probe?.Duration ?? duration;
+                    }
+
+                    await EncodeOneAsync(source, singleOutputFile, resolution, probe, fixJitter, hevc, normalize,
+                        duration, null,
+                        pct => reportProgress(parallelProgress.Report(i, itemConvertBand.At(pct)), ProgressLabel()),
+                        ct).ConfigureAwait(false);
+
+                    Interlocked.Increment(ref completedCount);
+                    reportProgress(parallelProgress.Report(i, 100), ProgressLabel());
+                }, token).ConfigureAwait(false);
             }
 
             reportProgress(100, Localizer.Get("Ready", Language));
@@ -462,12 +600,14 @@ namespace Mp4Merger.Core
                 string tempMerge = context.Temp($"mergetmp_before_ai_{Guid.NewGuid():N}.mp4");
                 var (plainMergeBand, aiUpscaleBand) = ProgressBand.ForAiMerge();
 
-                await MergeAsync(inputFiles, tempMerge, "Original", fixJitter, stabilize, hevc, normalize,
+                // Skip HEVC on the intermediate merge: Real-ESRGAN decodes it right
+                // back to PNG frames, and the final encode below applies HEVC if asked.
+                await MergeAsync(inputFiles, tempMerge, "Original", fixJitter, stabilize, hevc: false, normalize,
                     stabilizeSmoothing, context,
                     (pct, msg) => reportProgress(plainMergeBand.At(pct), msg + " (AI 1/2)"), token)
                     .ConfigureAwait(false);
 
-                await RunAiUpscaleAsync(tempMerge, outputFile, resolution,
+                await RunAiUpscaleAsync(tempMerge, outputFile, resolution, hevc,
                     pct => reportProgress(aiUpscaleBand.At(pct),
                         Localizer.GetDynamic("AiUpscalingPhase", Language, pct.ToString("F1", CultureInfo.InvariantCulture))),
                     token).ConfigureAwait(false);
@@ -496,18 +636,23 @@ namespace Mp4Merger.Core
             // --- PRE-PROCESSING: Gimbal stabilization ---
             if (stabilize)
             {
-                var stabilized = new List<string>();
-                for (int i = 0; i < workingFiles.Count; i++)
+                var stabilized = new string[workingFiles.Count];
+                int stabConcurrency = EncodeConcurrencyFor(hevc ? HevcEncoder : H264Encoder, aiUpscale: false);
+                var stabProgress = new ParallelProgress(sourceProbes.Select(p => p?.Duration ?? 1.0).ToList());
+
+                await RunIndexedAsync(workingFiles.Count, stabConcurrency, async (i, ct) =>
                 {
                     double duration = sourceProbes[i]?.Duration ?? 0;
-                    var clipBand = stabilizeBand.ForFileWithin(i, workingFiles.Count);
                     string result = await StabilizeAsync(workingFiles[i], sourceProbes[i], duration,
                         stabilizeSmoothing, hevc, context, i + 1, workingFiles.Count,
-                        (pct, msg) => reportProgress(clipBand.At(pct), msg),
-                        token).ConfigureAwait(false);
-                    stabilized.Add(result);
-                }
-                workingFiles = stabilized;
+                        (pct, msg) => reportProgress(stabilizeBand.At(stabProgress.Report(i, pct)), msg),
+                        ct).ConfigureAwait(false);
+                    stabilized[i] = result;
+                    reportProgress(stabilizeBand.At(stabProgress.Report(i, 100)),
+                        Localizer.GetDynamic("StabilizePass2", Language, (i + 1).ToString(), workingFiles.Count.ToString()));
+                }, token).ConfigureAwait(false);
+
+                workingFiles = stabilized.ToList();
                 sourceProbes = await ProbeEachAsync(workingFiles, token).ConfigureAwait(false);
             }
 
@@ -825,36 +970,46 @@ namespace Mp4Merger.Core
             Action<double, string> reportProgress, CancellationToken token)
         {
             var startTime = DateTime.UtcNow;
-            var segments = new List<string>();
+            var segments = new string[workingFiles.Count];
 
-            // Every segment has to come out with the same audio layout, or the
-            // concat below hits the same header mismatch the copy merge does.
+            // Every segment has to come out with the same audio layout and frame
+            // dimensions, or the concat below hits the same header mismatch the
+            // copy merge does.
             var audioTarget = context.Report?.AudioTarget;
             var videoTarget = context.Report?.VideoTarget;
-            bool resolutionsDiffer = context.Report?.VideoDifferences
-                .Any(d => d.Field == MergeCompatibility.Field.Resolution) ?? false;
+            var mergeCanvas = MergeCompatibility.MergeCanvasSize(probes, videoTarget, targetHeight);
             int segmentTimescale = MergeCompatibility.ReencodeTimescale(
                 probes.Where(p => p?.VideoTimeBase != null).Select(p => p!.VideoTimeBase!));
 
-            double completed = 0;
-            for (int i = 0; i < workingFiles.Count; i++)
+            int concurrency = EncodeConcurrencyFor(hevc ? HevcEncoder : H264Encoder, aiUpscale: false);
+            var segProgress = new ParallelProgress(probes.Select(p => p?.Duration ?? 1.0).ToList());
+            int completedSegments = 0;
+
+            string SegmentLabel(int fallbackIndex)
             {
-                token.ThrowIfCancellationRequested();
+                int shown = concurrency > 1
+                    ? Math.Min(Volatile.Read(ref completedSegments) + 1, workingFiles.Count)
+                    : fallbackIndex + 1;
+                return Localizer.GetDynamic("ProcessingSegment", Language,
+                    shown.ToString(), workingFiles.Count.ToString());
+            }
+
+            await RunIndexedAsync(workingFiles.Count, concurrency, async (i, ct) =>
+            {
                 string segment = context.Temp($"segment_{i}_{Guid.NewGuid():N}.mov");
-                segments.Add(segment);
+                segments[i] = segment;
 
                 double duration = probes[i]?.Duration ?? 0;
-                string message = Localizer.GetDynamic("ProcessingSegment", Language,
-                    (i + 1).ToString(), workingFiles.Count.ToString());
+                double segmentTotal = duration > 0 ? duration : 1;
 
-                double offset = completed;
                 await EncodeSegmentAsync(workingFiles[i], segment, probes[i], targetHeight, fixJitter, hevc,
-                    normalize, duration, audioTarget, resolutionsDiffer ? videoTarget : null, segmentTimescale,
-                    totalDuration, offset, startTime,
-                    pct => reportProgress(pct, message), token).ConfigureAwait(false);
+                    normalize, duration, audioTarget, mergeCanvas, segmentTimescale,
+                    segmentTotal, 0, startTime,
+                    pct => reportProgress(segProgress.Report(i, pct), SegmentLabel(i)), ct).ConfigureAwait(false);
 
-                completed += duration;
-            }
+                Interlocked.Increment(ref completedSegments);
+                reportProgress(segProgress.Report(i, 100), SegmentLabel(i));
+            }, token).ConfigureAwait(false);
 
             reportProgress(100, Localizer.Get("FinalizingMergingSegments", Language));
             string concatList = context.Temp($"tier3_concat_{Guid.NewGuid():N}.txt");
@@ -882,13 +1037,13 @@ namespace Mp4Merger.Core
         /// bit rate derived from the source rather than a fixed figure.
         private async Task EncodeSegmentAsync(
             string input, string output, MediaProbe? probe, int? targetHeight, bool fixJitter, bool hevc,
-            bool normalize, double duration, AudioFormat? audioTarget, VideoFormat? padTarget, int timescale,
+            bool normalize, double duration, AudioFormat? audioTarget, (int Width, int Height)? padCanvas, int timescale,
             double totalDuration, double offset, DateTime startTime,
             Action<double> reportProgress, CancellationToken token)
         {
             var args = new List<string>();
 
-            bool padToTarget = targetHeight == null && padTarget != null;
+            bool padToTarget = padCanvas != null;
             bool needsCpuFilters = fixJitter || targetHeight != null || padToTarget;
 
             // Hardware decode only when no CPU-side pixel filter is active; yadif
@@ -911,15 +1066,15 @@ namespace Mp4Merger.Core
 
             var videoFilters = new List<string>();
             if (fixJitter) videoFilters.Add("yadif=0:-1:0");
-            if (targetHeight is { } height)
-            {
-                videoFilters.Add($"scale=-2:{height}:flags=lanczos");
-            }
-            else if (padToTarget && padTarget != null)
+            if (padCanvas is { } canvas)
             {
                 videoFilters.Add(
-                    $"scale={padTarget.Width}:{padTarget.Height}:force_original_aspect_ratio=decrease:flags=lanczos," +
-                    $"pad={padTarget.Width}:{padTarget.Height}:(ow-iw)/2:(oh-ih)/2,setsar=1");
+                    $"scale={canvas.Width}:{canvas.Height}:force_original_aspect_ratio=decrease:flags=lanczos," +
+                    $"pad={canvas.Width}:{canvas.Height}:(ow-iw)/2:(oh-ih)/2,setsar=1");
+            }
+            else if (targetHeight is { } height)
+            {
+                videoFilters.Add($"scale=-2:{height}:flags=lanczos");
             }
             videoFilters.Add("format=yuv420p");
             args.AddRange(new[] { "-vf", string.Join(",", videoFilters) });
@@ -935,13 +1090,13 @@ namespace Mp4Merger.Core
             // The source bit rate, adjusted for any change in size.
             var sourceSize = (probe?.Video?.Width ?? 0, probe?.Video?.Height ?? 0);
             (int Width, int Height) outputSize;
-            if (targetHeight is { } h2)
+            if (padCanvas is { } canvasSize)
+            {
+                outputSize = canvasSize;
+            }
+            else if (targetHeight is { } h2)
             {
                 outputSize = MergeCompatibility.ScaledSize(sourceSize.Item1, sourceSize.Item2, h2);
-            }
-            else if (padToTarget && padTarget != null)
-            {
-                outputSize = (padTarget.Width, padTarget.Height);
             }
             else
             {
@@ -1211,7 +1366,7 @@ namespace Mp4Merger.Core
 
         // MARK: - AI upscaling (Windows only; the Mac build has no Real-ESRGAN)
 
-        private async Task RunAiUpscaleAsync(string input, string output, string resolution,
+        private async Task RunAiUpscaleAsync(string input, string output, string resolution, bool hevc,
             Action<double> reportProgress, CancellationToken token)
         {
             string modelName = resolution == "AI_Anime" ? "realesrgan-x4plus-anime" : "realesrgan-x4plus";
@@ -1220,7 +1375,7 @@ namespace Mp4Merger.Core
                 ResolveToolPath("ffmpeg"), ResolveToolPath("realesrgan-ncnn-vulkan"),
                 StalledMessage, UpscalerStalledMessage);
             await service.UpscaleVideoAsync(input, output, modelName, keepResolution,
-                (pct, _) => reportProgress(pct), token).ConfigureAwait(false);
+                (pct, _) => reportProgress(pct), token, hevc: hevc).ConfigureAwait(false);
         }
 
         // MARK: - Running ffmpeg
@@ -1283,8 +1438,7 @@ namespace Mp4Merger.Core
                 return Localizer.GetDynamic("FfmpegStalledAtStart", Language, minutes);
             }
 
-            var at = TimeSpan.FromSeconds(position);
-            return Localizer.GetDynamic("FfmpegStalled", Language, at.ToString(@"hh\:mm\:ss"), minutes);
+            return Localizer.GetDynamic("FfmpegStalled", Language, StallGuard.FormatPosition(position), minutes);
         }
 
         /// Why a check was stopped, naming where it got to.
@@ -1296,7 +1450,7 @@ namespace Mp4Merger.Core
                 return Localizer.GetDynamic("CheckStalledAtStart", Language, minutes);
             }
             return Localizer.GetDynamic("CheckStalled", Language,
-                TimeSpan.FromSeconds(position).ToString(@"hh\\:mm\\:ss"), minutes);
+                StallGuard.FormatPosition(position), minutes);
         }
 
         /// Why the AI upscaler was cut off. It reports no position of its own,

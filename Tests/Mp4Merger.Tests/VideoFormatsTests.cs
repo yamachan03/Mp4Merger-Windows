@@ -1,3 +1,4 @@
+using System.IO;
 using Mp4Merger.Core;
 
 namespace Mp4Merger.Tests;
@@ -92,6 +93,30 @@ public class VideoFormatsTests
             Assert.StartsWith(".", ext);
             Assert.Equal(ext.ToLowerInvariant(), ext);
             Assert.True(VideoFormats.IsSupported("clip" + ext), ext);
+        }
+    }
+
+    [Fact]
+    public void IntegrityCheckerCollectsTheSameVideoFormatsAsDropZone()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "mp4m_fmt_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            foreach (string name in new[] { "a.mp4", "b.mpg", "c.mkv", "d.LRF", "e.txt" })
+            {
+                File.WriteAllText(Path.Combine(tempDir, name), "");
+            }
+
+            var found = VideoIntegrityChecker.CollectVideos(new[] { tempDir }, recursive: false)
+                .Select(Path.GetFileName)
+                .ToList();
+
+            Assert.Equal(new[] { "a.mp4", "b.mpg", "c.mkv" }, found);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
 }

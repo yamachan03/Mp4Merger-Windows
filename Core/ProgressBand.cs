@@ -80,4 +80,61 @@ namespace Mp4Merger.Core
         /// Where this band ends.
         public double End => Start + Width;
     }
+
+    /// Combines progress from multiple items processed concurrently into one
+    /// monotonic 0..100 percentage, weighted by each item's share (e.g. duration
+    /// or equal shares). Thread-safe because parallel ffmpeg reader threads call
+    /// `Report` at the same time.
+    public sealed class ParallelProgress
+    {
+        private readonly object _gate = new();
+        private readonly double[] _weights;
+        private readonly double[] _percents;
+        private readonly double _totalWeight;
+
+        public ParallelProgress(IReadOnlyList<double> weights)
+        {
+            if (weights.Count == 0)
+            {
+                _weights = Array.Empty<double>();
+                _percents = Array.Empty<double>();
+                _totalWeight = 0;
+                return;
+            }
+
+            _weights = new double[weights.Count];
+            _percents = new double[weights.Count];
+            double sum = 0;
+            for (int i = 0; i < weights.Count; i++)
+            {
+                double w = weights[i] > 0 ? weights[i] : 1.0;
+                _weights[i] = w;
+                sum += w;
+            }
+            _totalWeight = sum;
+        }
+
+        public static ParallelProgress Equal(int count) =>
+            new(count <= 0 ? Array.Empty<double>() : Enumerable.Repeat(1.0, count).ToList());
+
+        /// Updates item `index` (clamped to 0..100, never moving backwards) and
+        /// returns the combined 0..100 percentage across all items.
+        public double Report(int index, double percent)
+        {
+            if (_totalWeight <= 0 || index < 0 || index >= _percents.Length) return 0;
+
+            double clamped = Math.Clamp(percent, 0, 100);
+            lock (_gate)
+            {
+                if (clamped > _percents[index]) _percents[index] = clamped;
+
+                double done = 0;
+                for (int i = 0; i < _percents.Length; i++)
+                {
+                    done += _weights[i] * _percents[i];
+                }
+                return Math.Clamp(done / _totalWeight, 0, 100);
+            }
+        }
+    }
 }
